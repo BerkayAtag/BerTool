@@ -4,13 +4,22 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="description" content="BerTool: Windows makinelerde güvenlik ajanlarını, servisleri ve BitLocker'ı izleyen tray ajanı ve merkezi yönetim konsolu.">
-<meta name="color-scheme" content="light">
+<meta name="color-scheme" content="light dark">
 <meta property="og:title" content="BerTool — Makine güvenliği tek ekranda">
 <meta property="og:description" content="Tray ajanı ve merkezi konsol ile servis, BitLocker ve cihaz durumunu izleyin.">
 <meta property="og:image" content="https://berkayatag.github.io/BerTool/screenshots/dashboard.png">
 <title>BerTool — Makine güvenliği tek ekranda</title>
 <link rel="icon" type="image/png" href="assets/bertool-logo.png">
 <link rel="stylesheet" href="site.css">
+<script>
+  // Varsayılan aydınlık tema; ziyaretçinin seçimi bu tarayıcıda hatırlanır.
+  // Sayfa boyanmadan önce uygulanır, böylece tema geçişinde yanıp sönme olmaz.
+  (function () {
+    var theme = 'light';
+    try { if (localStorage.getItem('bertool.site.theme') === 'dark') theme = 'dark'; } catch (e) {}
+    document.documentElement.setAttribute('data-theme', theme);
+  })();
+</script>
 </head>
 <body>
 <a class="skip" href="#main">İçeriğe geç</a>
@@ -22,6 +31,9 @@
     <a href="#kurulum">Kurulum</a>
     <a href="https://github.com/BerkayAtag/BerTool">GitHub ↗</a>
   </nav>
+  <button class="theme-toggle" id="theme-toggle" type="button" aria-pressed="false">
+    <span class="theme-icon" aria-hidden="true">☾</span><span class="theme-label">Karanlık tema</span>
+  </button>
 </header>
 
 <main id="main">
@@ -42,7 +54,7 @@
       </ul>
     </div>
     <figure class="hero-shot">
-      <img src="screenshots/dashboard.png" alt="BerTool yönetim konsolu: toplam, sağlıklı, riskli ve çevrimdışı makine sayaçları ile makine listesi" width="1440" height="900">
+      <img id="hero-image" src="screenshots/dashboard.png" data-light-src="screenshots/dashboard.png" data-dark-src="screenshots/dashboard-dark.png" alt="BerTool yönetim konsolu: toplam, sağlıklı, riskli ve çevrimdışı makine sayaçları ile makine listesi" width="1440" height="900">
       <figcaption>Gerçek uygulama ekranı · sentetik demo verisi</figcaption>
     </figure>
   </section>
@@ -134,5 +146,30 @@
   <a href="https://github.com/BerkayAtag/BerTool/blob/main/SECURITY.md">Güvenlik</a>
   <a href="https://github.com/BerkayAtag/BerTool/blob/main/CHANGELOG.md">Değişiklikler</a>
 </footer>
+<script>
+  (function () {
+    var root = document.documentElement;
+    var button = document.getElementById('theme-toggle');
+    var hero = document.getElementById('hero-image');
+
+    function apply(theme) {
+      var dark = theme === 'dark';
+      root.setAttribute('data-theme', theme);
+      button.setAttribute('aria-pressed', String(dark));
+      button.querySelector('.theme-icon').textContent = dark ? '☀' : '☾';
+      button.querySelector('.theme-label').textContent = dark ? 'Aydınlık tema' : 'Karanlık tema';
+      // Koyu temada konsolun koyu ekran görüntüsü gösterilir.
+      hero.src = dark ? hero.getAttribute('data-dark-src') : hero.getAttribute('data-light-src');
+    }
+
+    apply(root.getAttribute('data-theme') === 'dark' ? 'dark' : 'light');
+
+    button.addEventListener('click', function () {
+      var next = root.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
+      apply(next);
+      try { localStorage.setItem('bertool.site.theme', next); } catch (e) {}
+    });
+  })();
+</script>
 </body>
 </html>

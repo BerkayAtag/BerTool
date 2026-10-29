@@ -11,7 +11,7 @@
 - `build-setups.cmd`, `NoDefaultCurrentDirectoryInExePath` ayarlı ortamlarda da çalışır; özet dosyası `SHA256SUMS.txt`.
 - İsteğe bağlı Authenticode kod imzalama: uygulama dosyaları, kurulumlar ve kaldırıcılar `tools/Sign-BerTool.ps1` ile imzalanır ve zaman damgası alır; GitHub Actions secret'larıyla da çalışır.
 - MIT lisansı; kurulum klasörüne `LICENSE.txt` olarak eklenir.
-- Tanıtım sayfası her zaman aydınlık temada gösterilir.
+- Tanıtım sayfası varsayılan olarak aydınlık temada açılır; sağ üstteki düğmeyle karanlık temaya geçilir ve seçim tarayıcıda hatırlanır.
 
 ### Hata düzeltmeleri
 - Sunucu setup: temiz kurulumda sunucu, adres/veri dizini yapılandırması yazılmadan başlatılıyordu; `127.0.0.1:5081` yerine `appsettings.json` varsayılanıyla açılıyor ve veriyi uygulama klasörüne yazıyordu. Yapılandırma artık dosyalar kopyalanmadan önce yazılır.

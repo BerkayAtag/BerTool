@@ -1,4 +1,4 @@
-/* Tanıtım sayfası her zaman aydınlık temada gösterilir. */
+/* Varsayılan aydınlık tema; sağ üstteki düğmeyle karanlık temaya geçilir. */
 :root {
   color-scheme: light;
   --red: #e20613;
@@ -9,6 +9,20 @@
   --soft: #f4f6f9;
   --bg: #ffffff;
   --card: #ffffff;
+  --shot-shadow: rgba(17, 24, 39, .14);
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --red: #ff3b45;
+  --red-dark: #e20613;
+  --ink: #eef1f5;
+  --muted: #a3acba;
+  --line: #2a2f38;
+  --soft: #171a20;
+  --bg: #0f1115;
+  --card: #15181e;
+  --shot-shadow: rgba(0, 0, 0, .45);
 }
 
 * { box-sizing: border-box; }
@@ -29,7 +43,12 @@ code { font-family: Consolas, "Cascadia Mono", monospace; font-size: .9em; backg
 .brand img { border-radius: 9px; }
 .brand span { display: flex; flex-direction: column; line-height: 1.1; }
 .brand small { font-size: 12px; font-weight: 400; color: var(--muted); letter-spacing: 0; }
-nav { display: flex; gap: 26px; font-size: 14px; flex-wrap: wrap; }
+nav { display: flex; gap: 26px; font-size: 14px; flex-wrap: wrap; margin-left: auto; }
+
+.theme-toggle { display: inline-flex; align-items: center; gap: 8px; padding: 8px 14px; border: 1px solid var(--line); border-radius: 999px; background: var(--card); color: var(--ink); font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; transition: border-color .15s, color .15s; }
+.theme-toggle:hover { border-color: var(--red); color: var(--red); }
+.theme-toggle:focus-visible { outline: 3px solid var(--red); outline-offset: 3px; }
+.theme-icon { font-size: 15px; line-height: 1; }
 
 .eyebrow { margin: 0 0 14px; color: var(--red); font-size: 13px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
 h1 { font-size: clamp(38px, 5vw, 62px); line-height: 1.06; letter-spacing: -2px; margin: 0 0 24px; }
@@ -52,7 +71,7 @@ h3 { font-size: 19px; margin: 10px 0 8px; }
 figure { margin: 0; }
 figcaption { font-size: 12.5px; color: var(--muted); margin-top: 10px; }
 .hero-shot { padding: 14px; background: var(--soft); border: 1px solid var(--line); border-radius: 18px; }
-.hero-shot img { border-radius: 10px; box-shadow: 0 30px 60px rgba(17, 24, 39, .14); }
+.hero-shot img { border-radius: 10px; box-shadow: 0 30px 60px var(--shot-shadow); }
 
 .section { padding: 70px 28px; }
 .section-head { margin-bottom: 40px; }
@@ -88,6 +107,10 @@ footer span { margin-right: auto; }
   .install { margin: 20px 16px; padding: 32px 22px; }
   .section { padding: 48px 16px; }
   .top { padding: 18px 16px; flex-wrap: wrap; }
+  /* Dar ekranda tema düğmesi sağ üstte kalır, menü alt satıra iner. */
+  .brand { order: 1; }
+  .theme-toggle { order: 2; margin-left: auto; }
+  .top nav { order: 3; width: 100%; margin-left: 0; }
   footer { padding: 24px 16px; }
 }
 
