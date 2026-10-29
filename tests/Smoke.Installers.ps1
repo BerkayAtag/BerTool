@@ -14,8 +14,25 @@ $serverSetup = Join-Path $dist "BerTool.Server.Setup-$Version.exe"
 $clientSetup = Join-Path $dist "BerTool.Client.Setup-$Version.exe"
 $results = New-Object System.Collections.Generic.List[object]
 
+function Write-Diagnostics {
+    # Hata ayıklama için kurulum ve sunucu günlüklerini CI çıktısına yaz.
+    $logs = @(
+        "$env:TEMP\bertool-server-setup.log",
+        "$env:TEMP\bertool-client-setup.log",
+        "$env:LOCALAPPDATA\BerToolServer\logs\server.out.log",
+        "$env:LOCALAPPDATA\BerToolServer\logs\server.err.log",
+        "$env:LOCALAPPDATA\BerTool\Logs\tray-agent.log"
+    )
+    foreach ($log in $logs) {
+        if (Test-Path -LiteralPath $log) {
+            Write-Host "----- $log -----"
+            Get-Content -LiteralPath $log -Tail 40 | Write-Host
+        }
+    }
+}
+
 function Assert($condition, [string]$message) {
-    if (-not $condition) { throw "DOĞRULAMA BAŞARISIZ: $message" }
+    if (-not $condition) { Write-Diagnostics; throw "DOĞRULAMA BAŞARISIZ: $message" }
     Write-Host "OK  $message"
 }
 
@@ -30,6 +47,7 @@ function Wait-Until([scriptblock]$condition, [int]$seconds, [string]$what) {
         if (& $condition) { return $true }
         Start-Sleep -Milliseconds 500
     }
+    Write-Diagnostics
     throw "Zaman aşımı: $what"
 }
 

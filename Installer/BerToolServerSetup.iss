@@ -532,8 +532,14 @@ var
   LocationPath: string;
   LocationLines: TArrayOfString;
 begin
-  if CurStep = ssPostInstall then
+  // [Run] bölümündeki "sunucuyu başlat" girdisi ssPostInstall'dan önce
+  // çalışır. Yapılandırma ssPostInstall'da yazılırsa temiz kurulumda sunucu
+  // appsettings.json varsayılanlarıyla (5080 portu, app\data) başlıyordu.
+  // Bu yüzden adres ve veri dizini dosyalar kopyalanmadan önce yazılır.
+  if CurStep = ssInstall then
   begin
+    ForceDirectories(ExpandConstant('{app}'));
+    ForceDirectories(ExpandConstant('{localappdata}\BerToolServer'));
     LocationPath := ExpandConstant('{localappdata}\BerToolServer\server-location.txt');
     SetArrayLength(LocationLines, 1);
     LocationLines[0] := ExpandConstant('{app}');

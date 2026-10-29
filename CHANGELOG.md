@@ -11,6 +11,7 @@
 - `build-setups.cmd`, `NoDefaultCurrentDirectoryInExePath` ayarlı ortamlarda da çalışır; özet dosyası `SHA256SUMS.txt`.
 
 ### Hata düzeltmeleri
+- Sunucu setup: temiz kurulumda sunucu, adres/veri dizini yapılandırması yazılmadan başlatılıyordu; `127.0.0.1:5081` yerine `appsettings.json` varsayılanıyla açılıyor ve veriyi uygulama klasörüne yazıyordu. Yapılandırma artık dosyalar kopyalanmadan önce yazılır.
 - BitLocker: WMI sorgusu yalnızca iki sütun seçtiği için `GetEncryptionMethod` her yenilemede “Operation is not valid due to the current state of the object” hatası veriyordu. Tam nesne sorgulanıyor.
 - BitLocker: standart kullanıcıda her 45 saniyede yığın izli “Access denied” hatası loglanıyordu; artık bir kez bilgi satırı yazılır ve cache kullanılır.
 - Sunucu, BitLocker riskini raporlanan birimlerden kendisi hesaplar; XTS-AES-256 dışı şifreleme ajan “sağlıklı” bildirse bile risklidir.
