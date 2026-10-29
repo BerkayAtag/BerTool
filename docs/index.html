@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="BerTool: Windows makinelerde güvenlik ajanlarını, servisleri ve BitLocker'ı izleyen tray ajanı ve merkezi yönetim konsolu.">
+<meta name="color-scheme" content="light dark">
+<meta property="og:title" content="BerTool — Makine güvenliği tek ekranda">
+<meta property="og:description" content="Tray ajanı ve merkezi konsol ile servis, BitLocker ve cihaz durumunu izleyin.">
+<meta property="og:image" content="https://berkayatag.github.io/BerTool/screenshots/dashboard.png">
+<title>BerTool — Makine güvenliği tek ekranda</title>
+<link rel="icon" type="image/png" href="assets/bertool-logo.png">
+<link rel="stylesheet" href="site.css">
+</head>
+<body>
+<a class="skip" href="#main">İçeriğe geç</a>
+<header class="top">
+  <a class="brand" href="#"><img src="assets/bertool-logo.png" alt="" width="36" height="36"><span>BerTool<small>by Berkay Atağ</small></span></a>
+  <nav aria-label="Ana menü">
+    <a href="#ozellikler">Özellikler</a>
+    <a href="#ekranlar">Ekranlar</a>
+    <a href="#kurulum">Kurulum</a>
+    <a href="https://github.com/BerkayAtag/BerTool">GitHub ↗</a>
+  </nav>
+</header>
+
+<main id="main">
+  <section class="hero">
+    <div class="hero-copy">
+      <p class="eyebrow">Sürüm 1.4.0 · Windows x64</p>
+      <h1>Makine güvenliği<br><em>tek ekranda.</em></h1>
+      <p class="lead">BerTool, Windows bilgisayarlardaki güvenlik ajanlarını, servisleri ve BitLocker şifrelemesini izler. Tray ajanı durumu kullanıcıya gösterir, merkezi konsol tüm filoyu sağlıklı, riskli ve çevrimdışı olarak ayırır.</p>
+      <div class="actions">
+        <a class="button" href="https://github.com/BerkayAtag/BerTool/releases/latest">Kurulum dosyalarını indir <span aria-hidden="true">↓</span></a>
+        <a class="link" href="https://github.com/BerkayAtag/BerTool#readme">Belgeleri incele →</a>
+      </div>
+      <ul class="facts">
+        <li>Tıkla-kur setup</li>
+        <li>.NET gerektirmez</li>
+        <li>Harici bağımlılık yok</li>
+      </ul>
+    </div>
+    <figure class="hero-shot">
+      <img src="screenshots/dashboard.png" alt="BerTool yönetim konsolu: toplam, sağlıklı, riskli ve çevrimdışı makine sayaçları ile makine listesi" width="1440" height="900">
+      <figcaption>Gerçek uygulama ekranı · sentetik demo verisi</figcaption>
+    </figure>
+  </section>
+
+  <section id="ozellikler" class="section">
+    <div class="section-head">
+      <p class="eyebrow">Ne yapar?</p>
+      <h2>Ajandan konsola,<br>uçtan uca görünürlük.</h2>
+    </div>
+    <div class="features">
+      <article>
+        <span class="num">01</span>
+        <h3>Ürün bazlı servis kontrolü</h3>
+        <p>Bigfix, Delinea, DLP, Zabbix, Defender gibi ürünlerin hangi servislere baktığını konsoldan tanımlayın. Değişiklik mevcut raporlara anında uygulanır.</p>
+      </article>
+      <article>
+        <span class="num">02</span>
+        <h3>BitLocker denetimi</h3>
+        <p>Tüm sabit disklerde yalnızca XTS-AES-256 sağlıklı kabul edilir. Risk sunucuda yeniden hesaplanır; ajanın beyanına güvenilmez.</p>
+      </article>
+      <article>
+        <span class="num">03</span>
+        <h3>Tray'de anlık durum</h3>
+        <p>Yeşil veya kırmızı simge, 45 saniyede bir yenilenen cihaz, ağ ve servis bilgileri. Kullanıcı ne olduğunu tek tıkla görür.</p>
+      </article>
+      <article>
+        <span class="num">04</span>
+        <h3>Merkezi konsol</h3>
+        <p>Arama, ürün ve durum filtreleri, makine detayı, rapor geçmişi ve Excel uyumlu CSV dışa aktarma. Açık ve koyu tema.</p>
+      </article>
+      <article>
+        <span class="num">05</span>
+        <h3>Active Directory girişi</h3>
+        <p>LDAPS veya StartTLS ile yönetici grubu doğrulaması, iç içe grup desteği ve AD kesintisinde yerel yedek giriş.</p>
+      </article>
+      <article>
+        <span class="num">06</span>
+        <h3>Güvenli varsayılanlar</h3>
+        <p>Uzak bağlantıda HTTPS zorunlu, PBKDF2 şifre özeti, özetlenmiş ajan anahtarı, DPAPI ile korunan anahtarlar ve sıkı güvenlik başlıkları.</p>
+      </article>
+    </div>
+  </section>
+
+  <section id="ekranlar" class="section">
+    <div class="section-head">
+      <p class="eyebrow">Güncel tasarım</p>
+      <h2>Kırmızı-beyaz,<br>sade ve okunaklı.</h2>
+    </div>
+    <div class="gallery">
+      <figure class="wide"><img src="screenshots/machine-detail.png" alt="Makine detayı: risk değerlendirmesi, ürün durumları, cihaz bilgileri ve ağ kalitesi" loading="lazy" width="1440" height="900"><figcaption>Makine detayı — risk nedenleri, ürün durumları, donanım ve ağ.</figcaption></figure>
+      <figure><img src="screenshots/products.png" alt="Ürün tanımları ekranı: ürün, beklenen servisler ve eşleşme modu" loading="lazy" width="1440" height="900"><figcaption>Ürün tanımları</figcaption></figure>
+      <figure><img src="screenshots/dashboard-dark.png" alt="Koyu temada yönetim konsolu" loading="lazy" width="1440" height="900"><figcaption>Koyu tema</figcaption></figure>
+      <figure><img src="screenshots/settings.png" alt="Sunucu ayarları: raporlama, Active Directory ve ajan API anahtarı" loading="lazy" width="1440" height="900"><figcaption>Sunucu ayarları ve Active Directory</figcaption></figure>
+      <figure><img src="screenshots/login.png" alt="Yönetici giriş ekranı" loading="lazy" width="1440" height="900"><figcaption>Yönetici girişi</figcaption></figure>
+    </div>
+  </section>
+
+  <section id="kurulum" class="section install">
+    <div>
+      <p class="eyebrow">Kurulum</p>
+      <h2>İki setup,<br>birkaç tık.</h2>
+      <p class="muted">Her iki kurulum da self-contained'dir; hedef makinede .NET gerekmez. Programlar ve Özellikler'de yayıncı <strong>Berkay Atağ</strong> olarak görünür.</p>
+    </div>
+    <ol class="steps">
+      <li><strong>Sunucuyu kurun.</strong><p><code>BerTool.Server.Setup-1.4.0.exe</code> dosyasını çift tıklayın, <em>Kur</em>'a basın. Konsol açılır; ilk giriş bilgileri bitiş ekranından görüntülenebilir.</p></li>
+      <li><strong>Ajan anahtarını alın.</strong><p>Konsolda <em>Sunucu Ayarları → Ajan API Anahtarı</em> bölümünden anahtarı üretin veya ilk kurulum dosyasındaki anahtarı kullanın.</p></li>
+      <li><strong>İstemciyi dağıtın.</strong><p><code>BerTool.Client.Setup-1.4.0.exe /VERYSILENT /SERVERURL="https://sunucu" /APIKEY="…"</code> ile sessiz kurun ya da çift tıklayıp yerel modda çalıştırın.</p></li>
+    </ol>
+  </section>
+
+  <section class="section download">
+    <div>
+      <h2>BerTool 1.4.0</h2>
+      <p class="muted">Sunucu ve istemci için ayrı Windows x64 kurulum dosyaları, SHA-256 özetleriyle.</p>
+      <p class="note">Kurulum dosyaları Authenticode ile imzalı değildir; SmartScreen uyarısında "Ek bilgi → Yine de çalıştır" seçin. Kurum dağıtımında kendi kod imzalama sertifikanızı kullanın.</p>
+    </div>
+    <div class="download-links">
+      <a class="button" href="https://github.com/BerkayAtag/BerTool/releases/download/v1.4.0/BerTool.Server.Setup-1.4.0.exe">Sunucu kurulumu <span aria-hidden="true">↓</span></a>
+      <a class="button secondary" href="https://github.com/BerkayAtag/BerTool/releases/download/v1.4.0/BerTool.Client.Setup-1.4.0.exe">İstemci kurulumu <span aria-hidden="true">↓</span></a>
+      <a class="link" href="https://github.com/BerkayAtag/BerTool/releases/tag/v1.4.0">Sürüm notları ve SHA-256 →</a>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <span>© 2026 Berkay Atağ · BerTool</span>
+  <a href="https://github.com/BerkayAtag/BerTool">GitHub</a>
+  <a href="https://github.com/BerkayAtag/BerTool/blob/main/SECURITY.md">Güvenlik</a>
+  <a href="https://github.com/BerkayAtag/BerTool/blob/main/CHANGELOG.md">Değişiklikler</a>
+</footer>
+</body>
+</html>

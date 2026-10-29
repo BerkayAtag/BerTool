@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>BerTool.TrayAgent</RootNamespace>
+    <AssemblyName>BerTool.TrayAgent</AssemblyName>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>Branding\BerToolBrand.ico</ApplicationIcon>
+    <Version>1.4.0</Version>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="System.Management" Version="8.0.0" />
+    <PackageReference Include="System.ServiceProcess.ServiceController" Version="8.0.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\BerTool.Shared\BerTool.Shared.csproj" />
+  </ItemGroup>
+
+  <Target Name="GenerateBrandIconIfMissing" BeforeTargets="PrepareForBuild" Condition="!Exists('$(MSBuildProjectDirectory)\Branding\BerToolBrand.ico')">
+    <Exec Command="dotnet run --project &quot;$(MSBuildProjectDirectory)\..\..\tools\BerTool.IconGenerator\BerTool.IconGenerator.csproj&quot; -- &quot;$(MSBuildProjectDirectory)\Branding\BerToolBrand.ico&quot;" />
+  </Target>
+</Project>

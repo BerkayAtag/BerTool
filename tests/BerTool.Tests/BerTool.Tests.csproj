@@ -1,0 +1,30 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <IsPackable>false</IsPackable>
+    <AssemblyName>BerTool.Tests</AssemblyName>
+    <RootNamespace>BerTool.Tests</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
+    <PackageReference Include="xunit" Version="2.9.3" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="3.1.4" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\BerTool.Server\BerTool.Server.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Ajan aktarım/güvenlik kurallarını aynı kaynaktan test et. -->
+    <Compile Include="..\..\src\BerTool.TrayAgent\Reporting\AgentSettingsProvider.cs" Link="Agent\AgentSettingsProvider.cs" />
+    <Compile Include="..\..\src\BerTool.TrayAgent\Reporting\ReportingJson.cs" Link="Agent\ReportingJson.cs" />
+    <Compile Include="..\..\src\BerTool.TrayAgent\Reporting\AgentApiClient.cs" Link="Agent\AgentApiClient.cs" />
+    <Compile Include="..\..\src\BerTool.TrayAgent\Logging\Logger.cs" Link="Agent\Logger.cs" />
+  </ItemGroup>
+
+</Project>

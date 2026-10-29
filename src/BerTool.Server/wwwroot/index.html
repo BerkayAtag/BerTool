@@ -1,0 +1,431 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="light dark">
+    <meta name="theme-color" content="#e30613">
+    <title>BerTool Güvenlik Konsolu</title>
+    <script src="/theme.js?v=1.4.0"></script>
+    <link rel="stylesheet" href="/styles.css?v=1.4.0">
+    <script src="/app.js?v=1.4.0" defer></script>
+</head>
+<body>
+    <div id="login-view" class="auth-shell hidden">
+        <div class="auth-brand">
+            <div class="brand-mark brand-mark-large" aria-hidden="true">B</div>
+            <p class="eyebrow">BerTool</p>
+            <h1>Güvenlik Konsolu</h1>
+            <p class="auth-lead">Makine sağlığını izleyin, ürün kontrollerini yönetin ve riskli cihazları anında görün.</p>
+            <ul class="auth-features">
+                <li>Sağlıklı, riskli ve çevrimdışı makineler tek ekranda</li>
+                <li>Ürün bazlı servis tanımlarını anında düzenleyin</li>
+                <li>Tüm ajan verileri merkezi sunucuda raporlanır</li>
+            </ul>
+        </div>
+        <div class="auth-card">
+            <button class="theme-toggle theme-toggle-auth" type="button" data-theme-toggle aria-label="Tema değiştir">
+                <span data-theme-icon aria-hidden="true">☾</span>
+                <span data-theme-label>Karanlık tema</span>
+            </button>
+            <div class="auth-card-header">
+                <p class="eyebrow">Yönetici Girişi</p>
+                <h2>Konsola bağlan</h2>
+                <p class="muted">Devam etmek için yönetici bilgilerinizi girin.</p>
+            </div>
+            <form id="login-form" class="stack" novalidate>
+                <label class="field">
+                    <span>Kullanıcı adı</span>
+                    <input id="login-username" name="username" autocomplete="username" required autofocus>
+                </label>
+                <label class="field">
+                    <span>Şifre</span>
+                    <input id="login-password" name="password" type="password" autocomplete="current-password" required>
+                </label>
+                <p id="login-error" class="form-error hidden" role="alert"></p>
+                <button id="login-submit" class="btn btn-primary btn-block" type="submit">Giriş yap</button>
+            </form>
+            <p id="login-hint" class="auth-footnote">Yerel yönetici hesabınızla giriş yapın.</p>
+            <p class="auth-footnote">İlk kurulum bilgileri sunucudaki <code>bootstrap-credentials.txt</code> dosyasında bulunur.</p>
+        </div>
+    </div>
+
+    <div id="app-view" class="app-shell hidden">
+        <header class="topbar">
+            <a class="brand" href="#" data-view-link="dashboard" aria-label="BerTool ana sayfa">
+                <span class="brand-mark" aria-hidden="true">B</span>
+                <span class="brand-text">
+                    <strong>BerTool</strong>
+                    <small>Güvenlik Konsolu</small>
+                </span>
+            </a>
+            <div class="topbar-meta">
+                <button class="theme-toggle" type="button" data-theme-toggle aria-label="Tema değiştir">
+                    <span data-theme-icon aria-hidden="true">☾</span>
+                    <span data-theme-label>Karanlık tema</span>
+                </button>
+                <label class="switch" title="Dashboard her 30 saniyede yenilensin">
+                    <input id="auto-refresh" type="checkbox" checked>
+                    <span class="switch-track" aria-hidden="true"></span>
+                    <span>Otomatik yenile</span>
+                </label>
+                <span id="last-updated" class="muted small">Henüz yenilenmedi</span>
+                <span id="current-user-method" class="badge badge-neutral hidden"></span>
+                <span id="current-user" class="user-pill"></span>
+                <button id="logout-button" class="btn btn-ghost btn-sm" type="button">Çıkış</button>
+            </div>
+        </header>
+
+        <div class="layout">
+            <nav class="sidebar" aria-label="Ana menü">
+                <button class="nav-item active" type="button" data-view-link="dashboard">
+                    <span class="nav-icon" aria-hidden="true">▦</span>
+                    <span>Genel Bakış</span>
+                </button>
+                <button class="nav-item" type="button" data-view-link="products">
+                    <span class="nav-icon" aria-hidden="true">▣</span>
+                    <span>Ürün Tanımları</span>
+                </button>
+                <button class="nav-item" type="button" data-view-link="settings">
+                    <span class="nav-icon" aria-hidden="true">⚙</span>
+                    <span>Sunucu Ayarları</span>
+                </button>
+                <div class="sidebar-note">
+                    <span class="pulse-dot" aria-hidden="true"></span>
+                    <div>
+                        <strong>Ajan raporlaması</strong>
+                        <p id="sidebar-config-version">Yapılandırma sürümü: -</p>
+                    </div>
+                </div>
+            </nav>
+
+            <main class="main">
+                <section id="view-dashboard" class="view">
+                    <div class="page-head">
+                        <div>
+                            <p class="eyebrow">Canlı Durum</p>
+                            <h1>Makine Güvenliği</h1>
+                            <p class="page-lead">Sağlıklı ve riskli makineleri ayırın, ürün veya durum bazında filtreleyin.</p>
+                        </div>
+                        <button id="refresh-button" class="btn btn-secondary" type="button">
+                            <span aria-hidden="true">↻</span> Yenile
+                        </button>
+                    </div>
+
+                    <div class="summary-grid" id="summary-grid">
+                        <button class="summary-card" type="button" data-status-filter="all">
+                            <span class="summary-label">Toplam makine</span>
+                            <strong id="summary-total">-</strong>
+                            <span class="summary-hint">Kayıtlı ajan</span>
+                        </button>
+                        <button class="summary-card summary-healthy" type="button" data-status-filter="healthy">
+                            <span class="summary-label">Sağlıklı</span>
+                            <strong id="summary-healthy">-</strong>
+                            <span class="summary-hint">Tüm kontroller başarılı</span>
+                        </button>
+                        <button class="summary-card summary-risky" type="button" data-status-filter="risky">
+                            <span class="summary-label">Riskli</span>
+                            <strong id="summary-risky">-</strong>
+                            <span class="summary-hint">İnceleme gerekiyor</span>
+                        </button>
+                        <button class="summary-card summary-offline" type="button" data-status-filter="offline">
+                            <span class="summary-label">Çevrimdışı</span>
+                            <strong id="summary-offline">-</strong>
+                            <span class="summary-hint">Eşik süresini aştı</span>
+                        </button>
+                    </div>
+
+                    <div class="panel">
+                        <div class="panel-head">
+                            <div class="status-tabs" role="tablist" aria-label="Durum filtresi">
+                                <button class="status-tab active" type="button" data-status-filter="all">Tümü</button>
+                                <button class="status-tab" type="button" data-status-filter="risky">Riskli</button>
+                                <button class="status-tab" type="button" data-status-filter="healthy">Sağlıklı</button>
+                                <button class="status-tab" type="button" data-status-filter="offline">Çevrimdışı</button>
+                            </div>
+                            <span id="filtered-count" class="muted small"></span>
+                        </div>
+
+                        <div class="filter-bar">
+                            <label class="search-field">
+                                <span class="sr-only">Makine ara</span>
+                                <span class="search-icon" aria-hidden="true">⌕</span>
+                                <input id="search-input" type="search" placeholder="Makine, kullanıcı, IP veya model ara..." autocomplete="off">
+                            </label>
+                            <label class="field field-inline">
+                                <span>Ürün</span>
+                                <select id="product-filter">
+                                    <option value="">Tüm ürünler</option>
+                                </select>
+                            </label>
+                            <label class="field field-inline">
+                                <span>Ürün durumu</span>
+                                <select id="product-state-filter">
+                                    <option value="all">Tümü</option>
+                                    <option value="unhealthy">Sorunlu</option>
+                                    <option value="healthy">Sağlıklı</option>
+                                </select>
+                            </label>
+                            <button id="clear-filters" class="btn btn-ghost" type="button">Filtreleri temizle</button>
+                            <button id="export-button" class="btn btn-secondary" type="button">CSV indir</button>
+                        </div>
+
+                        <div class="table-wrap">
+                            <table class="data-table machine-table">
+                                <thead>
+                                    <tr>
+                                        <th>Durum</th>
+                                        <th>Makine</th>
+                                        <th>Kullanıcı / Model</th>
+                                        <th>IP Adresi</th>
+                                        <th>Ürün Sorunları</th>
+                                        <th>Son Görülme</th>
+                                        <th class="align-right">İşlem</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="machine-table-body">
+                                    <tr><td colspan="7" class="empty-state">Yükleniyor...</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <div class="pagination">
+                            <span id="pagination-info" class="muted small"></span>
+                            <div class="pagination-buttons">
+                                <button id="page-prev" class="btn btn-ghost btn-sm" type="button">Önceki</button>
+                                <button id="page-next" class="btn btn-ghost btn-sm" type="button">Sonraki</button>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                <section id="view-products" class="view hidden">
+                    <div class="page-head">
+                        <div>
+                            <p class="eyebrow">Yapılandırma</p>
+                            <h1>Ürün Tanımları</h1>
+                            <p class="page-lead">Hangi ürünün hangi Windows servislerine baktığını yönetin. Değişiklikler sunucuda anında yeniden hesaplanır.</p>
+                        </div>
+                        <button id="add-product-button" class="btn btn-primary" type="button">+ Yeni ürün</button>
+                    </div>
+
+                    <div class="info-banner">
+                        <strong>Durum nasıl etkilenir?</strong>
+                        <p>Bir ürünün servis listesi düzenlendiğinde sunucu, makinelerin son servis anlık görüntüsüyle yeni tanımı yeniden değerlendirir. Ajanlar yeni tanımı en geç 45 saniye içinde alır ve değişiklik algılandığında beklemeden rapor gönderir.</p>
+                    </div>
+
+                    <div class="panel">
+                        <div class="table-wrap">
+                            <table class="data-table">
+                                <thead>
+                                    <tr>
+                                        <th>Ürün</th>
+                                        <th>Beklenen servisler</th>
+                                        <th>Eşleşme</th>
+                                        <th>Durum</th>
+                                        <th>Sıra</th>
+                                        <th>Güncellendi</th>
+                                        <th class="align-right">İşlem</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="product-table-body">
+                                    <tr><td colspan="7" class="empty-state">Yükleniyor...</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </section>
+
+                <section id="view-settings" class="view hidden">
+                    <div class="page-head">
+                        <div>
+                            <p class="eyebrow">Sunucu</p>
+                            <h1>Ayarlar ve Ajan Bağlantısı</h1>
+                            <p class="page-lead">Raporlama sıklığını, çevrimdışı eşiğini ve ajan kimlik bilgilerini yönetin.</p>
+                        </div>
+                    </div>
+
+                    <div class="settings-grid">
+                        <div class="panel">
+                            <div class="panel-head">
+                                <div>
+                                    <h2>Raporlama Ayarları</h2>
+                                    <p class="muted small">Değişikliklerden sonra ajanlar en geç 45 saniye içinde yeni değerleri alır ve hemen rapor gönderir.</p>
+                                </div>
+                                <span id="settings-config-version" class="badge badge-neutral">Sürüm -</span>
+                            </div>
+                            <form id="settings-form" class="stack">
+                                <div class="field-row">
+                                    <label class="field">
+                                        <span>Rapor aralığı (saniye)</span>
+                                        <input id="settings-report-interval" type="number" min="30" max="86400" step="30" required>
+                                        <small>30 - 86400 saniye</small>
+                                    </label>
+                                    <label class="field">
+                                        <span>Çevrimdışı eşiği (dakika)</span>
+                                        <input id="settings-offline-threshold" type="number" min="1" max="1440" required>
+                                        <small>Son rapor bu süreyi aşarsa çevrimdışı sayılır</small>
+                                    </label>
+                                </div>
+                                <label class="field">
+                                    <span>Makine başına geçmiş kayıt sayısı</span>
+                                    <input id="settings-history-limit" type="number" min="5" max="500" required>
+                                    <small>Sunucuda tutulacak en fazla rapor geçmişi</small>
+                                </label>
+                                <div class="form-actions">
+                                    <button class="btn btn-primary" type="submit">Ayarları kaydet</button>
+                                </div>
+                            </form>
+                        </div>
+
+                        <div class="panel" id="ad-panel">
+                            <div class="panel-head">
+                                <div>
+                                    <h2>Active Directory</h2>
+                                    <p class="muted small">LDAPS veya StartTLS ile AD yönetici girişini yönetin. Değişiklikler yeniden başlatma gerektirmez.</p>
+                                </div>
+                                <span id="ad-state-badge" class="badge badge-neutral">-</span>
+                            </div>
+                            <form id="ad-form" class="stack" novalidate>
+                                <label class="switch switch-standalone">
+                                    <input id="ad-enabled" type="checkbox">
+                                    <span class="switch-track" aria-hidden="true"></span>
+                                    <span>Active Directory girişini etkinleştir</span>
+                                </label>
+                                <div class="field-row">
+                                    <label class="field">
+                                        <span>Sunucu (Host)</span>
+                                        <input id="ad-host" maxlength="255" placeholder="dc01.ornek.local" autocomplete="off" spellcheck="false">
+                                        <small>Etki alanı denetleyicisinin DNS adı veya IP adresi</small>
+                                    </label>
+                                    <label class="field">
+                                        <span>Port</span>
+                                        <input id="ad-port" type="number" min="0" max="65535" placeholder="Otomatik">
+                                        <small>Boş veya 0 ise seçilen şifrelemeye göre 636/389</small>
+                                    </label>
+                                </div>
+                                <div class="field-row">
+                                    <label class="field">
+                                        <span>Şifreleme</span>
+                                        <select id="ad-encryption">
+                                            <option value="ldaps">LDAPS (636)</option>
+                                            <option value="starttls">StartTLS (389)</option>
+                                            <option value="insecure" disabled>Şifresiz LDAP (yalnızca yapılandırma dosyası)</option>
+                                        </select>
+                                        <small>Üretimde LDAPS önerilir.</small>
+                                    </label>
+                                    <label class="field">
+                                        <span>Zaman aşımı (saniye)</span>
+                                        <input id="ad-timeout" type="number" min="3" max="60">
+                                    </label>
+                                </div>
+                                <label class="field">
+                                    <span>Base DN</span>
+                                    <input id="ad-basedn" maxlength="1024" placeholder="DC=ornek,DC=local" autocomplete="off" spellcheck="false">
+                                </label>
+                                <div class="field-row">
+                                    <label class="field">
+                                        <span>Hizmet hesabı (Bind DN)</span>
+                                        <input id="ad-binddn" maxlength="1024" placeholder="CN=svc-bertool,OU=Servis,DC=ornek,DC=local" autocomplete="off" spellcheck="false">
+                                    </label>
+                                    <label class="field">
+                                        <span>Hizmet hesabı parolası</span>
+                                        <input id="ad-bindpassword" type="password" maxlength="512" autocomplete="new-password" placeholder="Değiştirmek için girin">
+                                        <small id="ad-bind-state">Kayıtlı parola: -</small>
+                                    </label>
+                                </div>
+                                <div class="field-row">
+                                    <label class="field">
+                                        <span>Yönetici grubu</span>
+                                        <input id="ad-admingroup" maxlength="1024" placeholder="BerTool Admins" autocomplete="off" spellcheck="false">
+                                        <small>Grup adı veya tam DN</small>
+                                    </label>
+                                    <label class="switch switch-standalone">
+                                        <input id="ad-fallback" type="checkbox">
+                                        <span class="switch-track" aria-hidden="true"></span>
+                                        <span>Yerel yedek girişe izin ver</span>
+                                    </label>
+                                </div>
+                                <div class="form-actions">
+                                    <button id="ad-test-button" class="btn btn-secondary" type="button">Bağlantıyı test et</button>
+                                    <button id="ad-save-button" class="btn btn-primary" type="submit">AD ayarlarını kaydet</button>
+                                </div>
+                            </form>
+                            <p id="ad-config-error" class="form-error hidden" role="alert"></p>
+                            <div id="ad-warning-list" class="warning-list hidden"></div>
+                            <p id="ad-test-result" class="muted small hidden" role="status"></p>
+                            <p class="panel-text">Hizmet hesabı parolası istemciye hiçbir zaman geri gönderilmez; sunucuda Data Protection ile şifrelenmiş olarak saklanır. Boş parola alanı kayıtlı parolayı korur. Sertifika doğrulamasını devre dışı bırakma ve şifresiz LDAP yalnızca <code>appsettings.json</code> üzerinden açılabilir.</p>
+                        </div>
+
+                        <div class="panel">
+                            <div class="panel-head">
+                                <div>
+                                    <h2>Ajan API Anahtarı</h2>
+                                    <p class="muted small">Ajanlar bu anahtarla sunucuya rapor gönderir.</p>
+                                </div>
+                                <span id="agent-key-state" class="badge badge-neutral">-</span>
+                            </div>
+                            <p class="panel-text">Anahtar yalnızca özet (hash) olarak saklanır. Mevcut anahtar görüntülenemez; kaybolursa yeni bir anahtar üretip tüm ajanlara dağıtmanız gerekir.</p>
+                            <button id="rotate-key-button" class="btn btn-danger-soft" type="button">Yeni anahtar üret</button>
+                            <div id="rotated-key-panel" class="secret-panel hidden">
+                                <label class="field">
+                                    <span>Yeni ajan API anahtarı</span>
+                                    <div class="copy-row">
+                                        <input id="rotated-key-value" type="text" readonly>
+                                        <button id="copy-key-button" class="btn btn-secondary" type="button">Kopyala</button>
+                                    </div>
+                                </label>
+                                <p class="warning-text">Bu anahtar bir daha gösterilmeyecek. Tüm ajanların <code>agent-settings.json</code> dosyasını güncelleyin.</p>
+                            </div>
+                        </div>
+
+                        <div class="panel">
+                            <div class="panel-head">
+                                <div>
+                                    <h2>Ajan Bağlantı Bilgileri</h2>
+                                    <p class="muted small">Ajan kurulumunda kullanılacak örnek yapılandırma.</p>
+                                </div>
+                            </div>
+                            <p class="panel-text">Ajan ayar dosyası, makine genelinde <code>%PROGRAMDATA%\BerTool\agent-settings.json</code> yolundan okunur. Bu dosya yoksa kullanıcıya özel <code>%LOCALAPPDATA%\BerTool\agent-settings.json</code> kullanılır.</p>
+                            <pre id="agent-config-example" class="code-block"></pre>
+                            <button id="copy-config-button" class="btn btn-secondary" type="button">Örnek yapılandırmayı kopyala</button>
+                        </div>
+
+                        <div class="panel" id="password-panel">
+                            <div class="panel-head">
+                                <div>
+                                    <h2>Yönetici Şifresi</h2>
+                                    <p id="password-panel-note" class="muted small">Şifre değiştiğinde diğer açık oturumlar kapatılır.</p>
+                                </div>
+                            </div>
+                            <form id="password-form" class="stack">
+                                <label class="field">
+                                    <span>Mevcut şifre</span>
+                                    <input id="password-current" type="password" autocomplete="current-password" required>
+                                </label>
+                                <div class="field-row">
+                                    <label class="field">
+                                        <span>Yeni şifre</span>
+                                        <input id="password-new" type="password" autocomplete="new-password" minlength="12" required>
+                                    </label>
+                                    <label class="field">
+                                        <span>Yeni şifre (tekrar)</span>
+                                        <input id="password-repeat" type="password" autocomplete="new-password" minlength="12" required>
+                                    </label>
+                                </div>
+                                <small>En az 12 karakter, en az bir harf ve bir rakam.</small>
+                                <div class="form-actions">
+                                    <button class="btn btn-primary" type="submit">Şifreyi değiştir</button>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+                </section>
+            </main>
+        </div>
+    </div>
+
+    <div id="modal-root"></div>
+    <div id="toast-root" class="toast-root" aria-live="polite"></div>
+</body>
+</html>

@@ -1,0 +1,161 @@
+BerTool 1.4.0 - Setup Dosyalari
+================================
+
+Bu klasorde iki kurulum dosyasi bulunur:
+
+1) BerTool.Client.Setup-1.4.0.exe
+   Windows istemci / tray ajani kurulumu (Inno Setup, yonetici).
+
+2) BerTool.Server.Setup-1.4.0.exe
+   BerTool sunucusu ve yonetim konsolu kurulumu (Inno Setup, kullanici bazli).
+
+Her iki dosya da self-contained'dir; hedef makinede .NET runtime gerekmez.
+
+
+ISTEMCI KURULUMU
+----------------
+Cift tiklayip "Kur" dugmesine basmak yeterlidir (yonetici onayi istenir);
+ajan yerel modda calisir. Sunucuya raporlama icin yonetici olarak cmd acin:
+
+  BerTool.Client.Setup-1.4.0.exe /SERVERURL="https://sunucu-adresi" /APIKEY="AJAN-API-ANAHTARI"
+
+Sunucu adresi ve API anahtari verilmezse ajan yerel modda calisir.
+Yerel olmayan sunucularda HTTPS zorunludur; http:// yalnizca 127.0.0.1,
+localhost ve [::1] icin kabul edilir.
+
+Hazir ayar dosyasiyla:
+
+  BerTool.Client.Setup-1.4.0.exe /AGENTSETTINGSFILE="C:\Temp\agent-settings.json"
+
+Dosyadaki serverUrl icin de ayni HTTPS kurali gecerlidir. Gecersiz adres
+verilirse kurulum ayar dosyasini yazmadan hata verir; mevcut ayar korunur.
+
+Sessiz kurulum icin /SILENT veya /VERYSILENT kullanin; /S degil.
+
+Kurulum sonrasi:
+- Ajan Program Files altina kurulur ve Windows acilisinda baslar.
+- Ajan ayari: C:\ProgramData\BerTool\agent-settings.json
+- Kaldirma sirasinda agent-settings.json ve BitLocker cache'i korunur;
+  ayrica C:\ProgramData\BerToolUninstallBackup altina yedeklenir ve yeniden
+  kurulumda geri yuklenir. Bu verileri de silmek icin kaldirmadan sonra
+  C:\ProgramData\BerTool ve C:\ProgramData\BerToolUninstallBackup
+  klasorlerini elle silin.
+- Istemci ve sunucu ayni makinede kurulabilir; kaldirma yalnizca kendi
+  kisayollarini siler, diger urunun kisayollarina dokunmaz.
+- Programlar ve Ozellikler (appwiz.cpl) icinde "BerTool" kirmizi simge ve
+  "Berkay Atağ" yayinci adiyla gorunur.
+- Ayrintili bilgi: README.md
+
+
+SUNUCU KURULUMU
+---------------
+Sunucu setup dosyasini cift tiklayin, "Kur" dugmesine basin, "Bitir" ile
+kapatin (tikla-kur; klasor sorulmaz, yonetici yetkisi gerekmez).
+Bitis ekranindaki "Ilk giris bilgilerini goster" secenegi yonetici sifresini
+ve ajan API anahtarini iceren dosyayi Not Defteri'nde acar.
+
+Varsayilan kurulum:
+
+  Uygulama : %LOCALAPPDATA%\BerToolServer\app
+  Veri     : %LOCALAPPDATA%\BerToolServer\data
+  Gunluk   : %LOCALAPPDATA%\BerToolServer\logs
+
+Varsayilan adres yalnizca bu bilgisayardir:
+
+  http://127.0.0.1:5081/
+  http://127.0.0.1:5081/healthz   (saglik kontrolu)
+
+Kurulum sonrasi sunucu otomatik baslar ve oturum acilisinda tekrar baslar.
+Baslatmak / durdurmak icin Baslat menusundeki "BerTool Sunucu" klasorunu
+kullanin. Kurulumdan sonra konsol tarayicida acilir.
+
+Ilk kurulum bilgileri:
+  %LOCALAPPDATA%\BerToolServer\data\bootstrap-credentials.txt
+
+Dosyada yonetici sifresi ve ajan API anahtari bulunur. Ilk giristen sonra
+yonetici sifresini degistirin, bilgileri guvenli bir yere tasiyin ve
+bootstrap-credentials.txt dosyasini silin. Ajanlara API anahtarini
+/SERVERURL ve /APIKEY parametreleriyle verin.
+
+Konsol:
+- Varsayilan tema kirmizi-beyazdir; ust cubuktan karanlik tema
+  secilebilir. Secim tarayicida saklanir.
+- Ayarlar > Active Directory bolumunden AD entegrasyonu düzenlenebilir.
+  LDAPS veya StartTLS secin, baglanti testini calistirin ve kaydedin.
+  Degisiklikler yeniden baslatma gerektirmez.
+- Hizmet hesabi parolasi istemciye geri gonderilmez; bos birakilirsa kayitli
+  parola korunur. Sifresiz LDAP ve sertifika dogrulamasini kapatma yalnizca
+  appsettings.json uzerinden acilabilir ve konsolda uyari olarak gorunur.
+
+Kurulum parametreleri (istege bagli):
+
+  BerTool.Server.Setup-1.4.0.exe /PORT=5081 /BIND=127.0.0.1
+  BerTool.Server.Setup-1.4.0.exe /URLS="https://0.0.0.0:5443"
+  BerTool.Server.Setup-1.4.0.exe /DATADIR="C:\BerToolData"
+  BerTool.Server.Setup-1.4.0.exe /FORCECONFIG=1
+  BerTool.Server.Setup-1.4.0.exe /SILENT
+  BerTool.Server.Setup-1.4.0.exe /VERYSILENT /SUPPRESSMSGBOXES
+
+  /BIND       Dinlenecek IP. Varsayilan 127.0.0.1 (yalnizca yerel).
+  /PORT       Port. Varsayilan 5081.
+  /URLS       Tam adres. Verilirse /BIND ve /PORT yok sayilir.
+  /DATADIR    Veri klasoru. Varsayilan %LOCALAPPDATA%\BerToolServer\data.
+  /FORCECONFIG  Mevcut appsettings.Production.json dosyasini yedekleyip
+                yeniden yazar. Varsayilan olarak mevcut ayarlar korunur.
+
+Yerel olmayan bir /BIND adresi verilirse varsayilan adres https:// olur.
+Sertifikayi appsettings.Production.json icindeki
+Kestrel:Certificates:Default bolumunde tanimlayin veya guvenilir bir ters
+proxy kullanin. Sessiz kurulumda yerel aga acik http:// adresi reddedilir;
+etkilesimli kurulumda yalnizca acik onayla devam edilebilir.
+
+Mevcut kurulum uzerine kurulum:
+- appsettings.json ve appsettings.Production.json korunur.
+- Veri dizini silinmez; makineler, ayarlar, AD yapilandirmasi ve API anahtari
+  korunur.
+- Yalnizca uygulama dosyalari guncellenir.
+- Eski portable (ZIP) kurulumdan geciyorsaniz veri dizinini acikca verin:
+    BerTool.Server.Setup-1.4.0.exe /DATADIR="ESKI-VERI-KLASORU" /FORCECONFIG=1
+- appsettings.json icinde eski varsayilan http://0.0.0.0:5080 adresi duruyorsa,
+  yalnizca yerel erisim icin /FORCECONFIG=1 ile yeniden calistirin. 1.4.0 ile
+  gelen varsayilan adres http://127.0.0.1:5080'dir.
+
+Yapilandirma:
+  %LOCALAPPDATA%\BerToolServer\app\appsettings.Production.json
+  Adres, veri dizini ve Kestrel/HTTPS sertifikasi bu dosyadan yonetilir.
+  Active Directory ayarlari konsoldan yonetilir ve
+  %LOCALAPPDATA%\BerToolServer\data\server.json icinde saklanir. Hizmet
+  hesabi parolasi Data Protection anahtarlariyla sifrelenir; keys klasorunu
+  yedekleyin. Ayrintilar README.md "Sunucu Kurulumu" bolumundedir.
+
+Uretim / LAN:
+  Sunucu LAN'a acilacaksa HTTPS kullanin. /URLS="https://..." ile birlikte
+  gecerli bir sertifika yapilandirin (appsettings.Production.json icinde
+  Kestrel:Certificates:Default:Path ve Password) veya guvenilir bir ters
+  proxy kullanin. HTTP yalnizca localhost test ortami icindir. Yerel agda
+  guvenlik duvarinda yalnizca HTTPS portunu acin; HTTP portunu disari acmayin.
+
+Kaldirma:
+  Baslat menusu > BerTool Sunucu > BerTool Sunucu Kaldir.
+  Kaldirma sirasinda calisan sunucu durdurulur, uygulama dosyalari ve
+  kisayollar temizlenir. Sunucunun oturum acilis kisayolu kaldirilir;
+  istemci kisayollari korunur. appsettings.json, appsettings.Production.json ve
+  .bak dosyalari %LOCALAPPDATA%\BerToolServer\config-backup altina yedeklenir;
+  yeniden kurulumda geri yuklenir. Yedek geri yuklenemezse kurulum hata
+  vererek durur; varsayilan ayarlara donmez, yedek ve veri korunur. Veri ve
+  gunluk klasorleri silinmez. Veriyi de silmek icin kaldirmadan sonra
+  %LOCALAPPDATA%\BerToolServer klasorunu elle silin.
+
+
+YENIDEN URETME
+--------------
+Proje kokunde cmd acin:
+
+  build-setups.cmd
+
+Bu komut once tum derlemeyi yapar, sonra iki setup dosyasini ve SHA256SUMS.txt
+ozetini dist\<surum>\ klasorune kopyalar.
+
+Sadece derleme icin:
+  build-installer.cmd --with-server
+

@@ -1,0 +1,27 @@
+bin/
+obj/
+.vs/
+*.user
+*.suo
+*.log
+*.tmp
+*.bak
+*.pfx
+*.p12
+*.key
+.env
+.env.*
+
+# Derleme çıktıları: kurulum dosyaları GitHub Releases'ta yayınlanır.
+artifacts/
+dist/
+Installer/*.exe
+
+# Yerel sunucu verisi ve kimlik bilgileri
+data/
+bootstrap-credentials.txt
+appsettings.Local.json
+appsettings.Production.json
+
+# Yerel araç ayarları
+.claude/
