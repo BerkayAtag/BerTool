@@ -4,8 +4,9 @@
 
 <p align="center"><strong>Windows makinelerde güvenlik ajanları, servisler ve BitLocker için tray ajanı ve merkezi yönetim konsolu.</strong></p>
 
+<p align="center"><a href="https://berkayatag.github.io/BerTool/"><strong>🌐 Tanıtım sayfası: berkayatag.github.io/BerTool</strong></a></p>
+
 <p align="center">
-<a href="https://berkayatag.github.io/BerTool/">Tanıtım sayfası</a> ·
 <a href="https://github.com/BerkayAtag/BerTool/releases/tag/v1.4.0">İndir (1.4.0)</a> ·
 <a href="#hızlı-kurulum">Hızlı kurulum</a> ·
 <a href="CHANGELOG.md">Değişiklikler</a>

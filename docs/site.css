@@ -27,7 +27,7 @@
 
 * { box-sizing: border-box; }
 html { scroll-behavior: smooth; }
-body { margin: 0; color: var(--ink); background: var(--bg); font-family: "Segoe UI", system-ui, -apple-system, Arial, sans-serif; line-height: 1.6; }
+body { margin: 0; color: var(--ink); background: var(--bg); transition: background-color .2s, color .2s; font-family: "Segoe UI", system-ui, -apple-system, Arial, sans-serif; line-height: 1.6; }
 img { max-width: 100%; height: auto; display: block; }
 a { color: inherit; text-decoration: none; }
 a:hover { text-decoration: underline; }
@@ -45,10 +45,13 @@ code { font-family: Consolas, "Cascadia Mono", monospace; font-size: .9em; backg
 .brand small { font-size: 12px; font-weight: 400; color: var(--muted); letter-spacing: 0; }
 nav { display: flex; gap: 26px; font-size: 14px; flex-wrap: wrap; margin-left: auto; }
 
-.theme-toggle { display: inline-flex; align-items: center; gap: 8px; padding: 8px 14px; border: 1px solid var(--line); border-radius: 999px; background: var(--card); color: var(--ink); font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; transition: border-color .15s, color .15s; }
-.theme-toggle:hover { border-color: var(--red); color: var(--red); }
+/* Tema düğmesi: menüyle aynı hizada, sade yuvarlak simge düğmesi. */
+.theme-toggle { display: inline-grid; place-items: center; width: 38px; height: 38px; margin-left: 6px; padding: 0; border: 1px solid var(--line); border-radius: 50%; background: transparent; color: var(--ink); cursor: pointer; transition: color .15s, border-color .15s, background-color .15s; }
+.theme-toggle:hover { color: var(--red); border-color: var(--red); background: var(--soft); }
 .theme-toggle:focus-visible { outline: 3px solid var(--red); outline-offset: 3px; }
-.theme-icon { font-size: 15px; line-height: 1; }
+.theme-toggle .icon-sun { display: none; }
+:root[data-theme="dark"] .theme-toggle .icon-moon { display: none; }
+:root[data-theme="dark"] .theme-toggle .icon-sun { display: block; }
 
 .eyebrow { margin: 0 0 14px; color: var(--red); font-size: 13px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
 h1 { font-size: clamp(38px, 5vw, 62px); line-height: 1.06; letter-spacing: -2px; margin: 0 0 24px; }
