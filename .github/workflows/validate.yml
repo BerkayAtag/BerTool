@@ -29,9 +29,31 @@ jobs:
         run: |
           choco upgrade innosetup -y --no-progress
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
+      # Kod imzalama isteğe bağlıdır. Depo ayarlarında BERTOOL_SIGN_PFX_BASE64 ve
+      # BERTOOL_SIGN_PFX_PASSWORD secret'ları tanımlanırsa setup'lar imzalanır.
+      # Pull request'lerde secret yoktur; kurulumlar imzasız üretilir.
+      - name: Prepare code signing certificate
+        shell: pwsh
+        env:
+          SIGN_PFX_BASE64: ${{ secrets.BERTOOL_SIGN_PFX_BASE64 }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:SIGN_PFX_BASE64)) {
+            Write-Host 'Kod imzalama secret tanımlı değil; setup dosyaları imzasız üretilecek.'
+            exit 0
+          }
+          $pfx = Join-Path $env:RUNNER_TEMP 'bertool-sign.pfx'
+          [IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String($env:SIGN_PFX_BASE64))
+          "BERTOOL_SIGN_PFX=$pfx" >> $env:GITHUB_ENV
+          "BERTOOL_EXPECT_SIGNED=1" >> $env:GITHUB_ENV
       - name: Build setup files
         shell: cmd
+        env:
+          BERTOOL_SIGN_PFX_PASSWORD: ${{ secrets.BERTOOL_SIGN_PFX_PASSWORD }}
         run: call build-setups.cmd
+      - name: Remove code signing certificate
+        if: always()
+        shell: pwsh
+        run: Remove-Item (Join-Path $env:RUNNER_TEMP 'bertool-sign.pfx') -Force -ErrorAction SilentlyContinue
       - name: Verify Windows installation, appwiz Publisher and icon
         shell: pwsh
         run: ./tests/Smoke.Installers.ps1

@@ -9,6 +9,9 @@
 - İstemci kurulumu Başlat menüsüne `BerTool` kısayolu ekler; sunucu kısayolları marka simgesini kullanır.
 - Sunucu kurulumu, sunucu dinlemeye başlayana kadar (en fazla 30 sn) bekler; bitiş ekranında ilk giriş bilgilerini gösterme seçeneği.
 - `build-setups.cmd`, `NoDefaultCurrentDirectoryInExePath` ayarlı ortamlarda da çalışır; özet dosyası `SHA256SUMS.txt`.
+- İsteğe bağlı Authenticode kod imzalama: uygulama dosyaları, kurulumlar ve kaldırıcılar `tools/Sign-BerTool.ps1` ile imzalanır ve zaman damgası alır; GitHub Actions secret'larıyla da çalışır.
+- MIT lisansı; kurulum klasörüne `LICENSE.txt` olarak eklenir.
+- Tanıtım sayfası her zaman aydınlık temada gösterilir.
 
 ### Hata düzeltmeleri
 - Sunucu setup: temiz kurulumda sunucu, adres/veri dizini yapılandırması yazılmadan başlatılıyordu; `127.0.0.1:5081` yerine `appsettings.json` varsayılanıyla açılıyor ve veriyi uygulama klasörüne yazıyordu. Yapılandırma artık dosyalar kopyalanmadan önce yazılır.

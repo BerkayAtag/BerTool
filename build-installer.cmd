@@ -94,10 +94,33 @@ if "%WITH_SERVER%"=="1" (
   )
 )
 
+rem Kod imzalama: BERTOOL_SIGN_PFX veya BERTOOL_SIGN_THUMBPRINT tanimliysa
+rem uygulama dosyalari, kurulum dosyalari ve kaldiricilar imzalanir.
+set "SIGN_SCRIPT=%~dp0tools\Sign-BerTool.ps1"
+set "SIGNING=0"
+if defined BERTOOL_SIGN_PFX set "SIGNING=1"
+if defined BERTOOL_SIGN_THUMBPRINT set "SIGNING=1"
+
+if "%SIGNING%"=="1" (
+  echo Uygulama dosyalari imzalaniyor...
+  powershell -NoProfile -ExecutionPolicy Bypass -File "%SIGN_SCRIPT%" "%PUBLISH_DIR%\BerTool.TrayAgent.exe"
+  if errorlevel 1 goto :fail
+  if "%WITH_SERVER%"=="1" (
+    powershell -NoProfile -ExecutionPolicy Bypass -File "%SIGN_SCRIPT%" "%SERVER_PUBLISH_DIR%\BerTool.Server.exe" "%SERVER_PUBLISH_DIR%\BerTool.Server.dll" "%SERVER_PUBLISH_DIR%\BerTool.Shared.dll"
+    if errorlevel 1 goto :fail
+  )
+) else (
+  echo Kod imzalama sertifikasi tanimli degil; kurulum dosyalari imzasiz uretilecek.
+)
+
 echo [5/5] Kurulum EXE'leri derleniyor...
 pushd "%INSTALLER_DIR%"
 
-"%ISCC_EXE%" "BerToolSetup.iss"
+if "%SIGNING%"=="1" (
+  "%ISCC_EXE%" /DSIGN "/Sbertool=powershell.exe -NoProfile -ExecutionPolicy Bypass -File $q%SIGN_SCRIPT%$q $f" "BerToolSetup.iss"
+) else (
+  "%ISCC_EXE%" "BerToolSetup.iss"
+)
 set "ISCC_EXIT=!ERRORLEVEL!"
 if not "!ISCC_EXIT!"=="0" (
   popd
@@ -105,7 +128,11 @@ if not "!ISCC_EXIT!"=="0" (
 )
 
 if "%WITH_SERVER%"=="1" (
-  "%ISCC_EXE%" "BerToolServerSetup.iss"
+  if "%SIGNING%"=="1" (
+    "%ISCC_EXE%" /DSIGN "/Sbertool=powershell.exe -NoProfile -ExecutionPolicy Bypass -File $q%SIGN_SCRIPT%$q $f" "BerToolServerSetup.iss"
+  ) else (
+    "%ISCC_EXE%" "BerToolServerSetup.iss"
+  )
   set "ISCC_EXIT=!ERRORLEVEL!"
   if not "!ISCC_EXIT!"=="0" (
     popd

@@ -12,4 +12,5 @@ Güvenlik modeli ve önerilen üretim yapılandırması için README'deki
 
 - Sunucuyu yerel ağa açacaksanız yalnızca HTTPS kullanın.
 - `bootstrap-credentials.txt` dosyasını ilk girişten sonra güvenli yere taşıyıp silin.
-- Kurum dağıtımında setup dosyalarını kendi Authenticode sertifikanızla imzalayın.
+- Kurum dağıtımında setup dosyalarını Authenticode sertifikasıyla imzalayın; derleme hattı bunu destekler (README → Kod imzalama).
+- İndirdiğiniz kurulum dosyalarını sürümdeki `SHA256SUMS.txt` ile doğrulayın.

@@ -77,6 +77,15 @@ function Test-Entry($entry, [string]$component) {
 Assert (Test-Path $serverSetup) "sunucu setup dosyası bulundu"
 Assert (Test-Path $clientSetup) "istemci setup dosyası bulundu"
 
+# CI'da kod imzalama sertifikası tanımlıysa imzalar geçerli ve zaman damgalı olmalı.
+if ($env:BERTOOL_EXPECT_SIGNED -eq '1') {
+    foreach ($setup in @($serverSetup, $clientSetup)) {
+        $signature = Get-AuthenticodeSignature -FilePath $setup
+        Assert ($signature.Status -eq 'Valid') "$(Split-Path $setup -Leaf) imzası geçerli ($($signature.SignerCertificate.Subject))"
+        Assert ($null -ne $signature.TimeStamperCertificate) "$(Split-Path $setup -Leaf) zaman damgalı"
+    }
+}
+
 # --- Sunucu ---
 $exit = Invoke-Setup $serverSetup @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', "/LOG=$env:TEMP\bertool-server-setup.log")
 Assert ($exit -eq 0) "sunucu kurulumu çıkış kodu 0"

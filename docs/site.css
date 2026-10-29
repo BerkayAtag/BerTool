@@ -1,4 +1,6 @@
+/* Tanıtım sayfası her zaman aydınlık temada gösterilir. */
 :root {
+  color-scheme: light;
   --red: #e20613;
   --red-dark: #b0000b;
   --ink: #17202c;
@@ -7,19 +9,6 @@
   --soft: #f4f6f9;
   --bg: #ffffff;
   --card: #ffffff;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --red: #ff3b45;
-    --red-dark: #e20613;
-    --ink: #eef1f5;
-    --muted: #a3acba;
-    --line: #2a2f38;
-    --soft: #171a20;
-    --bg: #0f1115;
-    --card: #15181e;
-  }
 }
 
 * { box-sizing: border-box; }

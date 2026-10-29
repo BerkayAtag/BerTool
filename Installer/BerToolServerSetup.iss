@@ -39,11 +39,17 @@ VersionInfoCompany={#MyAppPublisher}
 VersionInfoDescription={#MyAppName} Kurulum
 VersionInfoProductName={#MyAppName}
 VersionInfoProductVersion={#MyAppVersion}
+#ifdef SIGN
+; build-installer.cmd, sertifika tanımlıysa /DSIGN ve /Sbertool=... ile çağırır.
+SignTool=bertool
+SignedUninstaller=yes
+#endif
 
 [Languages]
 Name: "turkish"; MessagesFile: "compiler:Languages\Turkish.isl"
 
 [Files]
+Source: "..\LICENSE"; DestDir: "{app}"; DestName: "LICENSE.txt"; Flags: ignoreversion
 Source: "..\artifacts\BerTool.Server\*"; DestDir: "{app}"; Excludes: "appsettings.json"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "..\artifacts\BerTool.Server\appsettings.json"; DestDir: "{app}"; Flags: onlyifdoesntexist uninsneveruninstall
 Source: "..\src\BerTool.TrayAgent\Branding\BerToolBrand.ico"; DestDir: "{app}"; DestName: "BerTool.ico"; Flags: ignoreversion

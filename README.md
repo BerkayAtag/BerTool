@@ -11,7 +11,7 @@
 <a href="CHANGELOG.md">Değişiklikler</a>
 </p>
 
-<p align="center">1.4.0 · Windows x64 · .NET 8 (self-contained) · Berkay Atağ</p>
+<p align="center">1.4.0 · Windows x64 · .NET 8 (self-contained) · MIT · Berkay Atağ</p>
 
 ![BerTool yönetim konsolu — sentetik demo verisi](docs/screenshots/dashboard.png)
 
@@ -41,7 +41,7 @@ Tüm arayüz, log ve dokümantasyon Türkçedir.
 
    Parametresiz çift tıklandığında ajan yerel modda çalışır (yalnızca tray durumu).
 
-Programlar ve Özellikler (`appwiz.cpl`) içinde her iki ürün de kırmızı BerTool simgesi ve **Berkay Atağ** yayıncı adıyla görünür. Kurulum dosyaları Authenticode ile imzalı değildir; Windows SmartScreen uyarısında *Ek bilgi → Yine de çalıştır* seçin. Kurum dağıtımında kendi kod imzalama sertifikanızla imzalayın.
+Programlar ve Özellikler (`appwiz.cpl`) içinde her iki ürün de kırmızı BerTool simgesi ve **Berkay Atağ** yayıncı adıyla görünür. Yayınlanan 1.4.0 kurulum dosyaları henüz Authenticode ile imzalı değildir; Windows SmartScreen uyarısında *Ek bilgi → Yine de çalıştır* seçin. Derleme hattı imzalamaya hazırdır; ayrıntılar [Kod imzalama](#kod-imzalama) bölümündedir.
 
 ## Ekranlar
 
@@ -107,6 +107,7 @@ Windows istemci                                    Merkezi sunucu
 
 ```text
 BerTool.TrayAgent.sln
+LICENSE               MIT
 build-installer.cmd
 src/
   BerTool.Shared/
@@ -165,6 +166,7 @@ src/
 tools/
   BerTool.IconGenerator/
   Package-BerToolServer.ps1
+  Sign-BerTool.ps1      İsteğe bağlı Authenticode imzalama
 tests/
   BerTool.Tests/
   Smoke.Installers.ps1
@@ -693,6 +695,68 @@ $env:BERTOOL_AGENT_API_KEY = "<AJAN-API-ANAHTARI>"
 .\src\BerTool.TrayAgent\bin\Release\net8.0-windows\BerTool.TrayAgent.exe --report-once
 ```
 
+## Kod imzalama
+
+Derleme hattı Authenticode imzalamayı destekler. Bir kod imzalama sertifikası
+tanımlandığında `build-installer.cmd` ve `build-setups.cmd` şunları imzalar ve
+zaman damgası ekler (`tools/Sign-BerTool.ps1`, `signtool /fd SHA256 /tr`):
+
+- `BerTool.TrayAgent.exe`, `BerTool.Server.exe`, `BerTool.Server.dll`, `BerTool.Shared.dll`
+- `BerTool.Client.Setup` ve `BerTool.Server.Setup` kurulum dosyaları
+- Her iki ürünün kaldırıcısı (`unins000.exe`, Inno Setup `SignedUninstaller`)
+
+Sertifika tanımlı değilse kurulum dosyaları imzasız üretilir; derleme bozulmaz.
+
+### Yerel derlemede
+
+```powershell
+# .pfx dosyasıyla
+$env:BERTOOL_SIGN_PFX = "C:\Guvenli\bertool-codesign.pfx"
+$env:BERTOOL_SIGN_PFX_PASSWORD = "<pfx-parolasi>"
+.\build-setups.cmd
+
+# veya sertifika deposundaki / donanım anahtarındaki sertifikayla
+$env:BERTOOL_SIGN_THUMBPRINT = "<sertifika-parmak-izi>"
+.\build-setups.cmd
+```
+
+İsteğe bağlı: `BERTOOL_SIGN_TIMESTAMP_URL` (varsayılan `http://timestamp.digicert.com`),
+`BERTOOL_SIGNTOOL` (varsayılan: en yeni Windows SDK `signtool.exe`).
+
+### GitHub Actions'ta
+
+Depo ayarlarında **Settings → Secrets and variables → Actions** altına iki secret ekleyin:
+
+| Secret | Değer |
+| --- | --- |
+| `BERTOOL_SIGN_PFX_BASE64` | `.pfx` dosyasının Base64 hali: `[Convert]::ToBase64String([IO.File]::ReadAllBytes("bertool.pfx"))` |
+| `BERTOOL_SIGN_PFX_PASSWORD` | `.pfx` parolası |
+
+Secret'lar tanımlıysa `Validate BerTool` iş akışı kurulumları imzalar ve kurulum
+testi imzanın geçerli ve zaman damgalı olduğunu da doğrular. Pull request'lerde
+secret kullanılmaz.
+
+### Sertifika edinme
+
+İmzanın Windows'ta güvenilir görünmesi ve yayıncı olarak **Berkay Atağ**
+yazması için sertifikanın bu adla, kimlik doğrulaması yapılmış olarak bir
+sertifika otoritesinden alınması gerekir; kendinden imzalı sertifika SmartScreen
+ve UAC uyarısını kaldırmaz. Bireysel geliştiriciler için seçenekler:
+
+- **Bireysel (OV) kod imzalama sertifikası:** Certum, Sectigo, GlobalSign gibi
+  sağlayıcılardan; kimlik belgesiyle doğrulanır. Certum'un açık kaynak
+  geliştiricilere yönelik uygun fiyatlı bir sertifikası vardır. Anahtar donanım
+  anahtarında veya bulut HSM'de tutulur; bu durumda `BERTOOL_SIGN_THUMBPRINT`
+  ile yerelde imzalayın.
+- **SignPath Foundation:** açık kaynak projelere ücretsiz, GitHub Actions ile
+  entegre imzalama; imzada yayıncı olarak SignPath Foundation görünür.
+- **Microsoft Artifact Signing (Trusted Signing):** aylık ücretli bulut imzalama;
+  bireysel geliştirici uygunluğu ülkeye göre değişir.
+
+SmartScreen itibarı imzalı dosyalar indirildikçe zamanla oluşur; imza ilk
+günden uyarıyı tamamen kaldırmayabilir, ancak "Bilinmeyen yayıncı" yerine
+doğrulanmış yayıncı adını gösterir.
+
 ## Loglar
 
 Ajan:
@@ -736,4 +800,4 @@ Sunucu:
 
 ## Lisans ve telif
 
-© 2026 Berkay Atağ · BerTool. Ekran görüntülerindeki makine ve kullanıcı adları sentetik test verisidir; kurulum paketlerinde bulunmaz.
+[MIT](LICENSE), © 2026 Berkay Atağ · BerTool. Üçüncü taraf bileşenler (.NET, Inno Setup) kendi lisanslarına tabidir. Ekran görüntülerindeki makine ve kullanıcı adları sentetik test verisidir; kurulum paketlerinde bulunmaz.
