@@ -14,11 +14,10 @@ internal sealed class ServiceHealthChecker
             .Where(product => product.Enabled)
             .ToList();
 
-        if (enabledProducts.Count == 0)
-        {
-            return new ServiceHealthResult(Array.Empty<ServiceStatusItem>(), Array.Empty<ServiceSnapshotDto>());
-        }
-
+        // Etkin ürün olmasa da servis anlık görüntüsü toplanır ve raporlanır.
+        // Sunucu, sonradan eklenen bir ürünü bu görüntüyle anında değerlendirir;
+        // görüntü boş gönderilirse ajan yeniden raporlayana kadar bütün
+        // makinelerde ürün "Bulunamadı" görünür.
         ServiceController[] services;
         try
         {

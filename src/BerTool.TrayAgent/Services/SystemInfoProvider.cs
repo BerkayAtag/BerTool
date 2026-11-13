@@ -11,21 +11,6 @@ namespace BerTool.TrayAgent.Services;
 
 internal sealed class SystemInfoProvider
 {
-    private static readonly string[] VpnKeywords =
-    {
-        "vpn",
-        "tunnel",
-        "wireguard",
-        "openvpn",
-        "anyconnect",
-        "forti",
-        "globalprotect",
-        "zscaler",
-        "pulse",
-        "tap",
-        "ppp"
-    };
-
     public SystemInfoModel GetSystemInfo()
     {
         var machineName = Environment.MachineName;
@@ -164,7 +149,7 @@ internal sealed class SystemInfoProvider
 
     private static IReadOnlyList<IpAddressInfo> GetIpAddresses()
     {
-        var addresses = new List<IpAddressInfo>();
+        var addresses = new List<(IpAddressInfo Info, int Priority)>();
 
         try
         {
@@ -176,8 +161,15 @@ internal sealed class SystemInfoProvider
                     continue;
                 }
 
-                var adapterType = ResolveAdapterType(networkInterface);
+                var adapterType = NetworkAdapterClassifier.ResolveAdapterType(
+                    networkInterface.NetworkInterfaceType,
+                    networkInterface.Name,
+                    networkInterface.Description);
                 var ipProperties = networkInterface.GetIPProperties();
+                var hasGateway = ipProperties.GatewayAddresses.Any(gateway =>
+                    gateway.Address.AddressFamily == AddressFamily.InterNetwork &&
+                    !gateway.Address.Equals(IPAddress.Any) &&
+                    !gateway.Address.Equals(IPAddress.None));
 
                 foreach (var unicastAddress in ipProperties.UnicastAddresses)
                 {
@@ -193,13 +185,21 @@ internal sealed class SystemInfoProvider
                         continue;
                     }
 
-                    addresses.Add(new IpAddressInfo
-                    {
-                        Address = address.ToString(),
-                        AdapterName = networkInterface.Name,
-                        AdapterType = adapterType,
-                        IsIpv6 = address.AddressFamily == AddressFamily.InterNetworkV6
-                    });
+                    var isIpv6 = address.AddressFamily == AddressFamily.InterNetworkV6;
+                    var bytes = address.GetAddressBytes();
+                    var isLinkLocal = isIpv6
+                        ? address.IsIPv6LinkLocal
+                        : bytes.Length == 4 && bytes[0] == 169 && bytes[1] == 254;
+
+                    addresses.Add((
+                        new IpAddressInfo
+                        {
+                            Address = address.ToString(),
+                            AdapterName = networkInterface.Name,
+                            AdapterType = adapterType,
+                            IsIpv6 = isIpv6
+                        },
+                        NetworkAdapterClassifier.GetSortPriority(adapterType, hasGateway, isIpv6, isLinkLocal)));
                 }
             }
         }
@@ -208,33 +208,15 @@ internal sealed class SystemInfoProvider
             Logger.Error("IP bilgileri alınamadı.", exception);
         }
 
+        // Makinenin ağdaki asıl adresi (varsayılan ağ geçidi olan fiziksel
+        // adaptör) en başta gelir. Konsoldaki makine listesi ilk adresi gösterir;
+        // eskiden alfabetik sıralandığı için sanal anahtar adresleri öne çıkıyordu.
         return addresses
-            .GroupBy(item => item.Address, StringComparer.OrdinalIgnoreCase)
-            .Select(group => group.First())
-            .OrderBy(item => item.IsIpv6)
-            .ThenBy(item => item.Address, StringComparer.OrdinalIgnoreCase)
+            .GroupBy(item => item.Info.Address, StringComparer.OrdinalIgnoreCase)
+            .Select(group => group.OrderBy(item => item.Priority).First())
+            .OrderBy(item => item.Priority)
+            .ThenBy(item => item.Info.Address, StringComparer.OrdinalIgnoreCase)
+            .Select(item => item.Info)
             .ToList();
-    }
-
-    private static string ResolveAdapterType(NetworkInterface networkInterface)
-    {
-        var metadata = $"{networkInterface.Name} {networkInterface.Description}".ToLowerInvariant();
-        // VPN istemcilerinin çoğu adaptör adında/description'ında benzer anahtar kelimeler taşır.
-        if (networkInterface.NetworkInterfaceType is NetworkInterfaceType.Tunnel or NetworkInterfaceType.Ppp ||
-            VpnKeywords.Any(keyword => metadata.Contains(keyword, StringComparison.OrdinalIgnoreCase)))
-        {
-            return "VPN/Tünel";
-        }
-
-        if (networkInterface.NetworkInterfaceType is NetworkInterfaceType.Ethernet or
-            NetworkInterfaceType.GigabitEthernet or
-            NetworkInterfaceType.FastEthernetFx or
-            NetworkInterfaceType.FastEthernetT or
-            NetworkInterfaceType.Wireless80211)
-        {
-            return "Fiziksel";
-        }
-
-        return "Diğer";
     }
 }

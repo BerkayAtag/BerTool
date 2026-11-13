@@ -338,6 +338,21 @@ internal sealed class AdAuthenticationService
                 ElapsedMilliseconds = stopwatch.ElapsedMilliseconds
             };
         }
+        catch (DirectoryOperationException exception) when (exception.Response?.ResultCode == ResultCode.NoSuchObject)
+        {
+            _logger.LogWarning(
+                "AD bağlantı testi: dizin nesnesi bulunamadı. Sunucu: {Host}:{Port}, BaseDn: {BaseDn}",
+                options.Host,
+                options.EffectivePort,
+                SanitizeForLog(options.BaseDn));
+
+            return new AdConnectionTestResultDto
+            {
+                Success = false,
+                Message = "BaseDn veya yönetici grubu DN'si dizinde bulunamadı. Değerleri kontrol edin.",
+                ElapsedMilliseconds = stopwatch.ElapsedMilliseconds
+            };
+        }
         catch (LdapException exception)
         {
             _logger.LogError(
@@ -405,6 +420,17 @@ internal sealed class AdAuthenticationService
         }
         else if (options.UseStartTls)
         {
+            if (!OperatingSystem.IsWindows())
+            {
+                // Linux/macOS (OpenLDAP) sürücüsü bağlantıyı ilk istekte açar;
+                // StartTLS bağlantıdan önce çağrılırsa "LDAP sunucusu kullanılamıyor"
+                // hatası verir. Kimlik bilgisi içermeyen anonim bir kök DSE
+                // sorgusuyla bağlantı açılır, ardından TLS başlatılır.
+                var rootDse = new SearchRequest(string.Empty, "(objectClass=*)", SearchScope.Base, "supportedLDAPVersion");
+                ConfigureSearchLimits(rootDse, options, sizeLimit: 1);
+                connection.SendRequest(rootDse);
+            }
+
             connection.SessionOptions.StartTransportLayerSecurity(new DirectoryControlCollection());
         }
 

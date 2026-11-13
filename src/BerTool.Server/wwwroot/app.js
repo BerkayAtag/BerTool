@@ -55,6 +55,17 @@ function escapeHtml(value) {
     })[character]);
 }
 
+// Arama karşılaştırması için metni sadeleştirir: büyük/küçük harf, Türkçe
+// I/İ/ı/i ayrımı ve aksanlar yok sayılır. tr-TR küçük harf dönüşümü "I" harfini
+// "ı" yaptığı için "ikeext" araması "IKEEXT" servisini bulamıyordu.
+function foldForSearch(value) {
+    return String(value ?? '')
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/[Iıİ]/g, 'i')
+        .toLowerCase();
+}
+
 function textOr(value, fallback = 'Bilinmiyor') {
     const normalized = String(value ?? '').trim();
     return normalized.length > 0 ? normalized : fallback;
@@ -216,6 +227,7 @@ function showLogin() {
     state.session = null;
     closeModal();
     stopAutoRefresh();
+    clearRotatedKey();
     byId('app-view').classList.add('hidden');
     byId('login-view').classList.remove('hidden');
     byId('login-error').classList.add('hidden');
@@ -348,7 +360,18 @@ async function refreshSession() {
     }
 }
 
+function clearRotatedKey() {
+    // Yeni üretilen ajan anahtarı yalnızca bir kez gösterilir; ayarlar
+    // ekranından çıkıldığında veya oturum kapandığında ekrandan silinir.
+    byId('rotated-key-value').value = '';
+    byId('rotated-key-panel').classList.add('hidden');
+}
+
 async function switchView(viewName) {
+    if (state.currentView === 'settings' && viewName !== 'settings') {
+        clearRotatedKey();
+    }
+
     state.currentView = viewName;
 
     document.querySelectorAll('.view').forEach(view => {
@@ -520,11 +543,21 @@ function renderMachineTable() {
 
     body.innerHTML = machines.map(machine => {
         const failingProducts = (machine.productStatuses || []).filter(product => !product.isHealthy);
-        const issues = failingProducts.length > 0
-            ? failingProducts.slice(0, 2).map(product =>
-                `<span class="chip" title="${escapeHtml(product.details)}">${escapeHtml(product.displayName)}</span>`
-            ).join('') + (failingProducts.length > 2
-                ? `<span class="chip chip-neutral">+${failingProducts.length - 2}</span>`
+
+        // Servis dışı risk nedenleri (ör. BitLocker) ürün listesinde yer almaz.
+        // Eskiden yalnızca ürünlere bakıldığı için BitLocker yüzünden riskli
+        // olan makine "Sorun yok" etiketiyle görünüyordu.
+        const otherReasons = (machine.riskReasons || [])
+            .filter(reason => !/^Servis sorunu:/i.test(reason));
+        const issueChips = failingProducts
+            .map(product => ({ label: product.displayName, title: product.details }))
+            .concat(otherReasons.map(reason => ({ label: riskReasonLabel(reason), title: reason })));
+
+        const issues = issueChips.length > 0
+            ? issueChips.slice(0, 2).map(chip =>
+                `<span class="chip" title="${escapeHtml(chip.title)}">${escapeHtml(chip.label)}</span>`
+            ).join('') + (issueChips.length > 2
+                ? `<span class="chip chip-neutral" title="${escapeHtml(issueChips.slice(2).map(chip => chip.label).join(', '))}">+${issueChips.length - 2}</span>`
                 : '')
             : machine.isOffline
                 ? '<span class="chip chip-neutral">Bekleniyor</span>'
@@ -566,6 +599,15 @@ function renderMachineTable() {
     }).join('');
 }
 
+function riskReasonLabel(reason) {
+    const text = String(reason ?? '');
+    if (/bitlocker|xts-aes/i.test(text)) {
+        return 'BitLocker';
+    }
+
+    return text.length <= 28 ? text : 'Diğer risk';
+}
+
 function renderPagination() {
     const dashboard = state.dashboard;
     if (!dashboard) {
@@ -605,14 +647,75 @@ function resetFilters() {
     loadDashboard();
 }
 
-function exportCsv() {
+async function exportCsv() {
+    // Dosya fetch ile alınır. Doğrudan bağlantıya gidildiğinde oturum süresi
+    // dolmuşsa tarayıcı konsoldan çıkıp ham JSON hata yanıtını gösteriyordu.
+    const button = byId('export-button');
     const params = dashboardQuery(false);
-    const link = document.createElement('a');
-    link.href = `/api/admin/export?${params.toString()}`;
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-    toast('CSV indirme isteği başlatıldı.', 'success');
+    setButtonBusy(button, true, 'Hazırlanıyor...');
+
+    try {
+        const response = await fetch(`/api/admin/export?${params.toString()}`, {
+            credentials: 'same-origin',
+            headers: { Accept: 'text/csv, application/json' }
+        });
+
+        if (!response.ok) {
+            if (response.status === 401) {
+                toast('Yönetici oturumunuz sona erdi. Lütfen tekrar giriş yapın.', 'error');
+                showLogin();
+                return;
+            }
+
+            let message = `İstek başarısız oldu (${response.status}).`;
+            try {
+                const payload = await response.json();
+                message = payload?.message || message;
+            } catch {
+                // Gövde JSON değilse durum koduyla yetinilir.
+            }
+
+            throw new Error(message);
+        }
+
+        const blob = await response.blob();
+        const disposition = response.headers.get('content-disposition') || '';
+        const match = /filename="?([^";]+)"?/i.exec(disposition);
+        const fileName = match ? match[1].trim() : 'bertool-makineler.csv';
+
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = fileName;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        window.setTimeout(() => URL.revokeObjectURL(url), 2000);
+        toast('CSV dosyası indirildi.', 'success');
+    } catch (error) {
+        toast(`CSV indirilemedi: ${describeError(error)}`, 'error');
+    } finally {
+        setButtonBusy(button, false);
+    }
+}
+
+async function deleteMachine(machineId, machineName) {
+    const confirmed = window.confirm(
+        `"${machineName}" makine kaydı silinsin mi?\n\n` +
+        'Makinenin son raporu ve rapor geçmişi kalıcı olarak silinir. ' +
+        'Ajan bu makinede hâlâ çalışıyorsa bir sonraki raporda makine yeniden eklenir.');
+    if (!confirmed) {
+        return;
+    }
+
+    try {
+        await api(`/api/admin/machines/${encodeURIComponent(machineId)}`, { method: 'DELETE' });
+        closeModal();
+        toast('Makine kaydı silindi.', 'success');
+        await loadDashboard({ silent: true });
+    } catch (error) {
+        toast(`Makine silinemedi: ${describeError(error)}`, 'error');
+    }
 }
 
 async function openMachineDetail(machineId) {
@@ -674,7 +777,7 @@ function renderMachineDetail(detail) {
         : `<ul class="kv-list">${disks.map(disk => `<li><span>${escapeHtml(disk)}</span></li>`).join('')}</ul>`;
 
     const serviceRows = services.map(service => {
-        const search = `${service.name} ${service.displayName} ${service.status}`.toLocaleLowerCase('tr-TR');
+        const search = foldForSearch(`${service.name} ${service.displayName} ${service.status}`);
         const running = String(service.status).toLowerCase() === 'running';
         return `<tr data-service-search="${escapeHtml(search)}">
             <td>${escapeHtml(service.name)}</td>
@@ -685,13 +788,13 @@ function renderMachineDetail(detail) {
 
     const historyMarkup = history.length === 0
         ? '<p class="muted small">Geçmiş kayıt yok.</p>'
-        : `<ul class="history-list">${history.slice(0, 12).map(entry => `
+        : `<ul class="history-list">${history.map(entry => `
             <li>
-                <span>
+                <span class="history-when">
                     <span class="${entry.isHealthy ? 'text-ok' : 'text-bad'}">${entry.isHealthy ? 'Sağlıklı' : 'Riskli'}</span>
                     · ${escapeHtml(formatDate(entry.collectedAtUtc))}
                 </span>
-                <span class="muted">${entry.riskReasons?.length ? `${entry.riskReasons.length} risk nedeni` : 'Risk nedeni yok'}</span>
+                <span class="muted history-reasons">${entry.riskReasons?.length ? escapeHtml(entry.riskReasons.join(' · ')) : 'Risk nedeni yok'}</span>
             </li>`).join('')}</ul>`;
 
     return `
@@ -795,11 +898,14 @@ function renderMachineDetail(detail) {
             </div>
 
             <div class="detail-section">
-                <h3>Rapor Geçmişi</h3>
+                <h3>Rapor Geçmişi (${history.length})</h3>
                 ${historyMarkup}
             </div>
 
-            <div class="modal-footer">
+            <div class="modal-footer modal-footer-split">
+                <button class="btn btn-danger-soft" type="button"
+                    data-delete-machine="${escapeHtml(summary.machineId)}"
+                    data-machine-name="${escapeHtml(textOr(summary.machineName))}">Makineyi sil</button>
                 <button class="btn btn-secondary" type="button" data-close-modal>Kapat</button>
             </div>
         </div>`;
@@ -812,7 +918,7 @@ function bindServiceSearch() {
     }
 
     input.addEventListener('input', () => {
-        const term = input.value.toLocaleLowerCase('tr-TR').trim();
+        const term = foldForSearch(input.value).trim();
         document.querySelectorAll('#detail-service-rows tr').forEach(row => {
             const searchable = row.dataset.serviceSearch || '';
             row.hidden = term.length > 0 && !searchable.includes(term);
@@ -1207,7 +1313,8 @@ async function saveSettings(event) {
         state.settings = await api('/api/admin/settings', { method: 'PUT', body: payload });
         updateConfigVersionUi(state.settings.configVersion);
         updateAgentKeyState();
-        renderAdSettings(state.settings.ad);
+        // AD formu burada yeniden çizilmez: aynı sayfadaki kaydedilmemiş AD
+        // taslağı (ve yazılan hizmet hesabı parolası) silinmemelidir.
         await refreshSession();
         toast('Sunucu ayarları kaydedildi. Ajanlar en geç 45 saniye içinde yeni değerleri alacak ve değişiklik algılandığında hemen raporlayacak.', 'success');
         await loadDashboard({ silent: true });
@@ -1440,6 +1547,12 @@ function bindEvents() {
     });
 
     byId('modal-root').addEventListener('click', event => {
+        const deleteButton = event.target.closest('[data-delete-machine]');
+        if (deleteButton) {
+            deleteMachine(deleteButton.dataset.deleteMachine, deleteButton.dataset.machineName);
+            return;
+        }
+
         if (event.target.hasAttribute('data-modal-backdrop') || event.target.closest('[data-close-modal]')) {
             closeModal();
         }

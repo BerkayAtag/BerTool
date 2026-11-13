@@ -6,9 +6,9 @@
     <meta name="color-scheme" content="light dark">
     <meta name="theme-color" content="#e30613">
     <title>BerTool Güvenlik Konsolu</title>
-    <script src="/theme.js?v=1.4.0"></script>
-    <link rel="stylesheet" href="/styles.css?v=1.4.0">
-    <script src="/app.js?v=1.4.0" defer></script>
+    <script src="/theme.js?v=1.5.0"></script>
+    <link rel="stylesheet" href="/styles.css?v=1.5.0">
+    <script src="/app.js?v=1.5.0" defer></script>
 </head>
 <body>
     <div id="login-view" class="auth-shell hidden">
@@ -178,7 +178,7 @@
                                         <th>Makine</th>
                                         <th>Kullanıcı / Model</th>
                                         <th>IP Adresi</th>
-                                        <th>Ürün Sorunları</th>
+                                        <th>Sorunlar</th>
                                         <th>Son Görülme</th>
                                         <th class="align-right">İşlem</th>
                                     </tr>
@@ -258,13 +258,13 @@
                                 <div class="field-row">
                                     <label class="field">
                                         <span>Rapor aralığı (saniye)</span>
-                                        <input id="settings-report-interval" type="number" min="30" max="86400" step="30" required>
-                                        <small>30 - 86400 saniye</small>
+                                        <input id="settings-report-interval" type="number" min="30" max="86400" step="1" required>
+                                        <small>30 - 86400 saniye. Ajan bu aralıkla rapor gönderir.</small>
                                     </label>
                                     <label class="field">
                                         <span>Çevrimdışı eşiği (dakika)</span>
-                                        <input id="settings-offline-threshold" type="number" min="1" max="1440" required>
-                                        <small>Son rapor bu süreyi aşarsa çevrimdışı sayılır</small>
+                                        <input id="settings-offline-threshold" type="number" min="1" max="2880" required>
+                                        <small>Son rapor bu süreyi aşarsa çevrimdışı sayılır. Rapor aralığından en az 1 dakika uzun olmalıdır.</small>
                                     </label>
                                 </div>
                                 <label class="field">
@@ -406,14 +406,14 @@
                                 <div class="field-row">
                                     <label class="field">
                                         <span>Yeni şifre</span>
-                                        <input id="password-new" type="password" autocomplete="new-password" minlength="12" required>
+                                        <input id="password-new" type="password" autocomplete="new-password" minlength="12" maxlength="128" required>
                                     </label>
                                     <label class="field">
                                         <span>Yeni şifre (tekrar)</span>
-                                        <input id="password-repeat" type="password" autocomplete="new-password" minlength="12" required>
+                                        <input id="password-repeat" type="password" autocomplete="new-password" minlength="12" maxlength="128" required>
                                     </label>
                                 </div>
-                                <small>En az 12 karakter, en az bir harf ve bir rakam.</small>
+                                <small>En az 12, en fazla 128 karakter; en az bir harf ve bir rakam.</small>
                                 <div class="form-actions">
                                     <button class="btn btn-primary" type="submit">Şifreyi değiştir</button>
                                 </div>

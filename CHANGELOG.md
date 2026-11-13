@@ -1,5 +1,43 @@
 # Değişiklikler
 
+## 1.5.0 — 13 Kasım 2026
+
+### Doğrulama
+- 17 uçtan uca kullanım senaryosu (`docs/USE-CASES.md`, `tests/e2e/scenarios.py`). CI her sürümde iki setup'ı temiz Windows'a kurar, senaryoları kurulu sunucu ve gerçek tray ajanıyla çalıştırır, ardından kaldırmayı doğrular. Sonuç sürümde `e2e-results.json` olarak yayınlanır.
+- Active Directory girişi Samba AD DC test dizinine karşı 40 kontrolle doğrulandı (LDAPS, StartTLS, iç içe ve birincil grup, devre dışı hesap, LDAP enjeksiyonu, yerel yedek giriş).
+- 10.000 makinelik yük testi.
+- Birim testleri 55'ten 93'e çıktı.
+
+### Sunucu ↔ ajan yapılandırma akışı
+- Ajan, konsolda ayarlanan rapor aralığını birebir uygular. Raporlar 45 saniyelik durum yenilemesine bağlıydı; 30 sn ayarı 45 sn, 60 sn ayarı 90 sn olarak uygulanıyordu.
+- Etkin ürün tanımı yokken ajan servis anlık görüntüsünü boş gönderiyordu; sonradan eklenen ürün ajan yeniden raporlayana kadar tüm makinelerde "Bulunamadı" görünüyordu. Görüntü artık her zaman raporlanır.
+- Değer değişmeden kaydedilen ürün tanımı yapılandırma sürümünü artırmaz (ajanlar gereksiz yere yeniden raporlamaz).
+- Çevrimdışı eşiği rapor aralığından en az 1 dakika uzun olmalıdır; aksi halde sağlıklı makineler raporlar arasında çevrimdışı görünüyordu. Eşik üst sınırı 2880 dakika (en uzun rapor aralığıyla uyumlu).
+- İnternet hızı ölçüm adresi engelliyse ölçüm 5 dakika boyunca yeniden denenmez; eskiden her yenilemede 30 sn'ye varan bekleme yapılandırma değişikliklerinin uygulanmasını geciktiriyordu.
+
+### Hata düzeltmeleri
+- Active Directory ile giriş yapan kullanıcı, giriş yanıtında "admin / Yerel" olarak dönüyordu; konsol ona yanlış adı ve yerel şifre formunu gösteriyordu.
+- StartTLS, Linux üzerinde çalışan sunucuda "LDAP sunucusu kullanılamıyor" hatası veriyordu.
+- Olmayan BaseDn ile yapılan AD bağlantı testi genel bir hata yerine açıklayıcı mesaj verir.
+- Konsol araması Türkçe karakterlere duyarlıydı: "istanbul" araması "İSTANBUL" kaydını, servis listesinde "ikeext" araması "IKEEXT" servisini bulamıyordu.
+- BitLocker nedeniyle riskli olan makine listede "Sorun yok" etiketiyle görünüyordu.
+- CSV dışa aktarma, oturum süresi dolmuşsa konsoldan çıkıp ham hata metnini gösteriyordu.
+- Raporlama ayarlarını kaydetmek, aynı sayfadaki kaydedilmemiş AD formunu (ve yazılan hizmet hesabı parolasını) siliyordu.
+- Yeni üretilen ajan anahtarı ayarlar ekranından çıkıldıktan veya oturum kapandıktan sonra da ekranda kalıyordu.
+- Ajan, makinenin ilk IP adresi olarak alfabetik sıradaki sanal anahtar adresini (Hyper-V, VMware, WSL) raporluyordu; artık varsayılan ağ geçidi olan asıl adres ilk sıradadır.
+- İnternet hızına bağlantı kurulum ve ilk yanıt süresi dahil ediliyordu; hızlı hatlarda sonuç olduğundan düşük çıkıyordu.
+- Ajan çalışırken Başlat menüsü kısayoluna tıklamak hiçbir şey yapmıyordu; artık durum penceresi açılır.
+- Sunucu farklı bir çalışma klasöründen başlatıldığında ayarları ve konsol dosyalarını bulamıyordu; `appsettings.json` içindeki adres `ASPNETCORE_URLS` ortam değişkenini geçersiz kılıyordu.
+- 128 karakterden uzun yönetici şifresi belirlenebiliyordu; giriş bunu kabul etmediği için yönetici kendini kilitleyebiliyordu.
+
+### Yeni
+- Konsoldan makine kaydı silme (hizmet dışı bırakılan cihazlar).
+- `/healthz` sunucu sürümünü döndürür; ajan penceresi yapılandırma sürümünü gösterir.
+
+### Performans
+- Makine değerlendirmeleri önbelleğe alınır; pano her istekte tüm filoyu yeniden hesaplamaz. 2.000 makinede pano ~490 ms → ~30 ms, CSV ~1,9 sn → ~80 ms; 10.000 makinede pano ~50 ms.
+- Servis adları bellekte tek kopya tutulur, makine kayıtları girintisiz yazılır, iş istasyonu çöp toplayıcısı: 2.000 makinede sunucu belleği ~1,46 GB → ~180 MB.
+
 ## 1.4.0 — 29 Ekim 2026
 
 ### Kurulum ve marka

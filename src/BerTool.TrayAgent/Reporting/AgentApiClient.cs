@@ -37,7 +37,7 @@ internal sealed class AgentApiClient : IDisposable
             Timeout = RequestTimeout
         };
 
-        _httpClient.DefaultRequestHeaders.UserAgent.ParseAdd($"BerTool.TrayAgent/{typeof(AgentApiClient).Assembly.GetName().Version?.ToString(3) ?? "1.4.0"}");
+        _httpClient.DefaultRequestHeaders.UserAgent.ParseAdd($"BerTool.TrayAgent/{typeof(AgentApiClient).Assembly.GetName().Version?.ToString(3) ?? "1.5.0"}");
         _httpClient.DefaultRequestHeaders.Accept.ParseAdd("application/json");
     }
 

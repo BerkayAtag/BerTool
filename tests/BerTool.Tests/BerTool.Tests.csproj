@@ -25,6 +25,9 @@
     <Compile Include="..\..\src\BerTool.TrayAgent\Reporting\ReportingJson.cs" Link="Agent\ReportingJson.cs" />
     <Compile Include="..\..\src\BerTool.TrayAgent\Reporting\AgentApiClient.cs" Link="Agent\AgentApiClient.cs" />
     <Compile Include="..\..\src\BerTool.TrayAgent\Logging\Logger.cs" Link="Agent\Logger.cs" />
+    <Compile Include="..\..\src\BerTool.TrayAgent\Reporting\ReportSchedule.cs" Link="Agent\ReportSchedule.cs" />
+    <Compile Include="..\..\src\BerTool.TrayAgent\Services\NetworkAdapterClassifier.cs" Link="Agent\NetworkAdapterClassifier.cs" />
+    <Compile Include="..\..\src\BerTool.TrayAgent\Services\NetworkSpeedMath.cs" Link="Agent\NetworkSpeedMath.cs" />
   </ItemGroup>
 
 </Project>

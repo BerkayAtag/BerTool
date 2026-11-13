@@ -1,5 +1,5 @@
 ﻿#define MyAppName "BerTool Sunucu"
-#define MyAppVersion "1.4.0"
+#define MyAppVersion "1.5.0"
 #define MyAppPublisher "Berkay Atağ"
 #define MyAppServerExe "BerTool.Server.exe"
 #define MyAppBaseDir "{localappdata}\BerToolServer"
@@ -34,7 +34,7 @@ MinVersion=10.0
 UsedUserAreasWarning=no
 CloseApplications=no
 RestartApplications=no
-VersionInfoVersion=1.4.0.0
+VersionInfoVersion=1.5.0.0
 VersionInfoCompany={#MyAppPublisher}
 VersionInfoDescription={#MyAppName} Kurulum
 VersionInfoProductName={#MyAppName}

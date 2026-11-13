@@ -44,7 +44,12 @@ internal static class Program
 
         if (!isFirstInstance)
         {
-            Logger.Info("BerTool zaten çalışıyor; ikinci örnek kapatıldı.");
+            // Kullanıcı kısayola tekrar tıkladıysa bir şey görmek ister: çalışan
+            // örnekten durum penceresini açması istenir.
+            var signaled = SingleInstanceSignal.RequestShow();
+            Logger.Info(signaled
+                ? "BerTool zaten çalışıyor; çalışan örnekten durum penceresini açması istendi."
+                : "BerTool zaten çalışıyor; ikinci örnek kapatıldı.");
             return 0;
         }
 
@@ -52,8 +57,14 @@ internal static class Program
         {
             Logger.Info("Uygulama başlatıldı.");
 
+            // "--show": Başlat menüsü kısayolu ajanı bu parametreyle açar ve durum
+            // penceresi hemen gösterilir. Windows açılışındaki otomatik başlatma
+            // parametresizdir; yalnızca tray simgesi görünür.
+            var showOnStart = args.Any(argument =>
+                string.Equals(argument, "--show", StringComparison.OrdinalIgnoreCase));
+
             ApplicationConfiguration.Initialize();
-            using var trayContext = new TrayAppContext();
+            using var trayContext = new TrayAppContext(showOnStart);
             Application.Run(trayContext);
             return 0;
         }

@@ -6,8 +6,14 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <RootNamespace>BerTool.Server</RootNamespace>
     <AssemblyName>BerTool.Server</AssemblyName>
-    <Version>1.4.0</Version>
+    <Version>1.5.0</Version>
     <ApplicationIcon>..\BerTool.TrayAgent\Branding\BerToolBrand.ico</ApplicationIcon>
+    <!-- Sunucu tek bir yönetim makinesinde, çoğu zaman kullanıcı oturumunda çalışır.
+         Sunucu tipi çöp toplayıcı çekirdek başına büyük yığınlar ayırır ve belleği
+         geç bırakır; iş istasyonu (eşzamanlı) toplayıcı bu yük için fazlasıyla hızlıdır
+         ve çok daha az bellek kullanır. -->
+    <ServerGarbageCollection>false</ServerGarbageCollection>
+    <ConcurrentGarbageCollection>true</ConcurrentGarbageCollection>
   </PropertyGroup>
 
   <ItemGroup>

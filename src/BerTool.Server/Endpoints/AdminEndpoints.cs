@@ -93,6 +93,20 @@ internal static class AdminEndpoints
                 : Results.Ok(detail);
         });
 
+        group.MapDelete("/machines/{machineId}", async (
+            string machineId,
+            ServerStore store,
+            CancellationToken cancellationToken) =>
+        {
+            var deleted = await store.DeleteMachineAsync(machineId, cancellationToken);
+            return deleted
+                ? Results.Ok(new ApiMessageDto
+                {
+                    Message = "Makine kaydı silindi. Ajan yeniden rapor gönderirse makine tekrar eklenir."
+                })
+                : Results.NotFound(new ApiErrorDto { Message = "Makine kaydı bulunamadı." });
+        });
+
         group.MapGet("/export", async (
             string? status,
             string? search,
@@ -504,6 +518,11 @@ internal static class AdminEndpoints
                 AllowRefresh = false,
                 IssuedUtc = DateTimeOffset.UtcNow
             });
+
+        // Çerez bir sonraki istekte okunur; bu isteğin yanıtı da yeni kimliği
+        // yansıtmalıdır. Aksi halde AD ile giriş yapan kullanıcı yanıtta "admin /
+        // yerel" görünüyor ve konsol ona yerel şifre formunu gösteriyordu.
+        context.User = principal;
     }
 
     private static string? ValidateDashboardQuery(string? status, string? search, string? productState)

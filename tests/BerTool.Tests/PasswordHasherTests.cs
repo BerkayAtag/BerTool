@@ -45,6 +45,20 @@ public sealed class PasswordHasherTests
     }
 
     [Fact]
+    public void SifrePolitikasi_CokUzunSifreyiReddeder()
+    {
+        // Giriş uç noktası 512 karakter üzerini kabul etmez; politika bunun
+        // çok altında bir üst sınır koymazsa yönetici kendini kilitleyebilir.
+        var tooLong = "a1" + new string('x', PasswordPolicy.MaximumLength);
+
+        Assert.NotNull(PasswordPolicy.Validate(tooLong));
+        Assert.Null(PasswordPolicy.Validate("a1" + new string('x', PasswordPolicy.MaximumLength - 2)));
+        Assert.Null(PasswordPolicy.Validate("Guclu-Sifre-123"));
+        Assert.NotNull(PasswordPolicy.Validate("kisa1"));
+        Assert.NotNull(PasswordPolicy.Validate("sadeceharflerden"));
+    }
+
+    [Fact]
     public void AjanAnahtari_OzetiDogruDogrular()
     {
         var hash = PasswordHasher.HashAgentApiKey("ajan-anahtari");

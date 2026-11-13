@@ -7,12 +7,12 @@
 <p align="center"><a href="https://berkayatag.github.io/BerTool/"><strong>🌐 Tanıtım sayfası: berkayatag.github.io/BerTool</strong></a></p>
 
 <p align="center">
-<a href="https://github.com/BerkayAtag/BerTool/releases/tag/v1.4.0">İndir (1.4.0)</a> ·
+<a href="https://github.com/BerkayAtag/BerTool/releases/tag/v1.5.0">İndir (1.5.0)</a> ·
 <a href="#hızlı-kurulum">Hızlı kurulum</a> ·
 <a href="CHANGELOG.md">Değişiklikler</a>
 </p>
 
-<p align="center">1.4.0 · Windows x64 · .NET 8 (self-contained) · MIT · Berkay Atağ</p>
+<p align="center">1.5.0 · Windows x64 · .NET 8 (self-contained) · MIT · Berkay Atağ</p>
 
 ![BerTool yönetim konsolu — sentetik demo verisi](docs/screenshots/dashboard.png)
 
@@ -25,24 +25,25 @@ Tüm arayüz, log ve dokümantasyon Türkçedir.
 
 ## Hızlı kurulum
 
-[Releases](https://github.com/BerkayAtag/BerTool/releases/tag/v1.4.0) sayfasından iki kurulum dosyasını indirin. Her ikisi de tıkla-kur şeklindedir: çift tıklayın, **Kur**'a basın, **Bitir**. Hedef makinede .NET gerekmez.
+[Releases](https://github.com/BerkayAtag/BerTool/releases/tag/v1.5.0) sayfasından iki kurulum dosyasını indirin. Her ikisi de tıkla-kur şeklindedir: çift tıklayın, **Kur**'a basın, **Bitir**. Hedef makinede .NET gerekmez.
 
 | Dosya | Ne kurar | Yetki |
 | --- | --- | --- |
-| `BerTool.Server.Setup-1.4.0.exe` | Sunucu ve yönetim konsolu (`http://127.0.0.1:5081`) | Standart kullanıcı |
-| `BerTool.Client.Setup-1.4.0.exe` | Windows tray ajanı | Yönetici |
+| `BerTool.Server.Setup-1.5.0.exe` | Sunucu ve yönetim konsolu (`http://127.0.0.1:5081`) | Standart kullanıcı |
+| `BerTool.Client.Setup-1.5.0.exe` | Windows tray ajanı | Yönetici |
 | `SHA256SUMS.txt` | Dosya bütünlüğü özetleri | — |
+| `e2e-results.json` | Bu kurulum dosyalarıyla çalıştırılan uçtan uca senaryo sonuçları | — |
 
 1. **Sunucu:** kurulum bitince konsol tarayıcıda açılır. Bitiş ekranındaki *İlk giriş bilgilerini göster* seçeneği yönetici şifresini ve ajan API anahtarını içeren `bootstrap-credentials.txt` dosyasını açar.
 2. **İstemci:** sunucu adresi ve anahtarla sessiz dağıtın:
 
    ```cmd
-   BerTool.Client.Setup-1.4.0.exe /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /SERVERURL="https://bertool.example.com" /APIKEY="AJAN-API-ANAHTARI"
+   BerTool.Client.Setup-1.5.0.exe /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /SERVERURL="https://bertool.example.com" /APIKEY="AJAN-API-ANAHTARI"
    ```
 
    Parametresiz çift tıklandığında ajan yerel modda çalışır (yalnızca tray durumu).
 
-Programlar ve Özellikler (`appwiz.cpl`) içinde her iki ürün de kırmızı BerTool simgesi ve **Berkay Atağ** yayıncı adıyla görünür. Yayınlanan 1.4.0 kurulum dosyaları henüz Authenticode ile imzalı değildir; Windows SmartScreen uyarısında *Ek bilgi → Yine de çalıştır* seçin. Derleme hattı imzalamaya hazırdır; ayrıntılar [Kod imzalama](#kod-imzalama) bölümündedir.
+Programlar ve Özellikler (`appwiz.cpl`) içinde her iki ürün de kırmızı BerTool simgesi ve **Berkay Atağ** yayıncı adıyla görünür. Yayınlanan 1.5.0 kurulum dosyaları henüz Authenticode ile imzalı değildir; Windows SmartScreen uyarısında *Ek bilgi → Yine de çalıştır* seçin. Derleme hattı imzalamaya hazırdır; ayrıntılar [Kod imzalama](#kod-imzalama) bölümündedir.
 
 ## Ekranlar
 
@@ -54,7 +55,20 @@ Programlar ve Özellikler (`appwiz.cpl`) içinde her iki ürün de kırmızı Be
 
 Ekran görüntülerindeki makineler ve kullanıcılar sentetik test verisidir.
 
-## 1.4.0 ile gelenler
+## 1.5.0 ile gelenler
+
+- **Uçtan uca doğrulama:** 17 kullanım senaryosu ([docs/USE-CASES.md](docs/USE-CASES.md)) her sürümde temiz bir Windows'ta, kurulu sunucu ve **gerçek tray ajanıyla** çalıştırılır; sonuç sürümde `e2e-results.json` olarak yayınlanır.
+- **Sunucudaki değişiklikler ajana hemen yansır:** ajan konsolda ayarlanan rapor aralığını birebir uygular (30 sn ayarı eskiden 45 sn, 60 sn ayarı 90 sn olarak uygulanıyordu). Ürün tanımı olmasa da servis anlık görüntüsü raporlanır; sonradan eklenen ürün ajanı beklemeden sunucuda doğru değerlendirilir.
+- **Makine silme:** hizmet dışı bırakılan cihazlar konsoldaki makine detayından silinebilir.
+- **Performans:** sonuçlar önbelleğe alınır; 10.000 makinede pano ~50 ms (önce 2.000 makinede ~500 ms), CSV ~150 ms (önce ~2 sn), bellek ~8 kat daha az.
+- **Active Directory:** AD ile giriş yapan kullanıcı konsolda yanlışlıkla "admin / Yerel" görünüyor ve yerel şifre formu gösteriliyordu; düzeltildi. StartTLS Linux sunucularda da çalışır.
+- **Konsol:** Türkçe karakterden bağımsız arama (istanbul ↔ İSTANBUL, ı/i, ş/s); BitLocker riski makine listesinde görünür; CSV oturum düşmüşse konsoldan çıkmadan uyarır; rapor geçmişinin tamamı nedenleriyle gösterilir.
+- **Ajan:** Başlat menüsü kısayolu ve ikinci başlatma durum penceresini açar; ilk IP adresi makinenin asıl ağ adresidir (sanal anahtar değil); internet hızı ilk yanıt süresi düşülerek ölçülür; ölçüm adresi engelliyse 45 sn'lik döngü bekletilmez.
+- **Sunucu:** farklı çalışma klasöründen başlatıldığında da ayarları ve konsolu bulur; `ASPNETCORE_URLS` artık dikkate alınır; çevrimdışı eşiği rapor aralığından kısa olamaz.
+
+Tüm liste: [CHANGELOG.md](CHANGELOG.md).
+
+### 1.4.0
 
 - **Kırmızı marka simgesi:** çok boyutlu (16–256 px, 32 bit) yeni ICO; uygulama, kurulum sihirbazı, Başlat menüsü ve `appwiz.cpl` simgesi.
 - **Tıkla-kur setup:** klasör/hoş geldiniz sayfaları kaldırıldı; tek *Kur* onayı. Sunucu kurulumu, sunucu dinlemeye başlayana kadar bekler ve ilk giriş bilgilerini bitiş ekranından gösterebilir.
@@ -62,8 +76,6 @@ Ekran görüntülerindeki makineler ve kullanıcılar sentetik test verisidir.
 - **Sunucu tarafı BitLocker değerlendirmesi:** XTS-AES-256 dışı şifreleme, ajan “sağlıklı” bildirse bile sunucuda riskli sayılır.
 - **Güvenlik:** ajan API anahtarı istek gövdesi okunmadan doğrulanır; Data Protection anahtarları Windows'ta DPAPI ile şifrelenir; sunucunun varsayılan adresi `127.0.0.1`.
 - **Hata düzeltmeleri:** aynı servisin ürün detayında tekrar listelenmesi, tray'de ilk veri gelmeden “Sunucuya Raporla” ile sahte risk raporu gönderilmesi, varsayılan ürünlerde boş “Güncellendi” sütunu, makine detayındaki hizalama.
-
-Tüm liste: [CHANGELOG.md](CHANGELOG.md).
 
 ## Özellikler
 
@@ -326,11 +338,11 @@ dotnet publish "src\BerTool.Server\BerTool.Server.csproj" -c Release -r win-x64 
 Kurulum parametreleri:
 
 ```cmd
-BerTool.Server.Setup-1.4.0.exe /PORT=5081 /BIND=127.0.0.1
-BerTool.Server.Setup-1.4.0.exe /URLS="https://0.0.0.0:5443"
-BerTool.Server.Setup-1.4.0.exe /DATADIR="C:\BerToolData"
-BerTool.Server.Setup-1.4.0.exe /FORCECONFIG=1
-BerTool.Server.Setup-1.4.0.exe /SILENT
+BerTool.Server.Setup-1.5.0.exe /PORT=5081 /BIND=127.0.0.1
+BerTool.Server.Setup-1.5.0.exe /URLS="https://0.0.0.0:5443"
+BerTool.Server.Setup-1.5.0.exe /DATADIR="C:\BerToolData"
+BerTool.Server.Setup-1.5.0.exe /FORCECONFIG=1
+BerTool.Server.Setup-1.5.0.exe /SILENT
 ```
 
 `/FORCECONFIG=1` verilmezse mevcut `appsettings.json`,
@@ -342,7 +354,7 @@ yönetildiği için güncelleme sırasında ayrıca parametre gerekmez.
 Eski portable (ZIP) kurulumdan geçişte veri dizinini açıkça verin:
 
 ```cmd
-BerTool.Server.Setup-1.4.0.exe /DATADIR="C:\Eski\Sunucu\data" /FORCECONFIG=1
+BerTool.Server.Setup-1.5.0.exe /DATADIR="C:\Eski\Sunucu\data" /FORCECONFIG=1
 ```
 
 Yerel olmayan bir `BIND` adresi verildiğinde kurulum varsayılan olarak

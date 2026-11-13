@@ -1564,6 +1564,28 @@ details.service-details summary {
     font-size: 11.5px;
 }
 
+/* Geçmişin tamamı gösterilir; uzun listeler kendi içinde kayar. */
+.history-list {
+    max-height: 330px;
+    overflow-y: auto;
+    padding-right: 2px;
+}
+
+.history-when {
+    flex: 0 0 auto;
+    white-space: nowrap;
+}
+
+.history-reasons {
+    text-align: right;
+    overflow-wrap: anywhere;
+}
+
+/* Yıkıcı işlem solda, kapatma sağda. */
+.modal-footer-split {
+    justify-content: space-between;
+}
+
 /* ---------- Toast ---------- */
 
 .toast-root {

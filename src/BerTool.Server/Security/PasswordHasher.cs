@@ -118,6 +118,10 @@ internal static class PasswordPolicy
 {
     public const int MinimumLength = 12;
 
+    // Giriş uç noktası 512 karakterden uzun şifreleri reddeder; daha uzun bir
+    // şifre belirlenebilseydi yönetici bir daha giriş yapamazdı.
+    public const int MaximumLength = 128;
+
     public static string? Validate(string password)
     {
         if (string.IsNullOrWhiteSpace(password))
@@ -128,6 +132,11 @@ internal static class PasswordPolicy
         if (password.Length < MinimumLength)
         {
             return $"Yeni şifre en az {MinimumLength} karakter olmalıdır.";
+        }
+
+        if (password.Length > MaximumLength)
+        {
+            return $"Yeni şifre en fazla {MaximumLength} karakter olabilir.";
         }
 
         if (!password.Any(char.IsLetter) || !password.Any(char.IsDigit))

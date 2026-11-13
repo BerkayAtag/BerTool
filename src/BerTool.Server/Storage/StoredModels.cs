@@ -1,6 +1,7 @@
 using BerTool.Shared.Products;
 using BerTool.Server.Security;
 using BerTool.Shared.Contracts;
+using System.Text.Json.Serialization;
 
 namespace BerTool.Server.Storage;
 
@@ -55,4 +56,23 @@ internal sealed class StoredMachine
     public DateTimeOffset FirstSeenUtc { get; set; }
     public DateTimeOffset LastSeenUtc { get; set; }
     public List<MachineHistoryEntryDto> History { get; set; } = new();
+
+    /// <summary>
+    /// Son raporun güncel ürün tanımlarıyla hesaplanmış sonucu. Rapor veya ürün
+    /// tanımları değişmedikçe pano her istekte yeniden hesaplamaz.
+    /// </summary>
+    [JsonIgnore]
+    public MachineEvaluation? Evaluation { get; set; }
 }
+
+/// <summary>
+/// Bir raporun belirli bir ürün tanımı listesine göre değerlendirme sonucu.
+/// Kaynak nesnelerin kimliği saklanır; ikisinden biri değiştiğinde sonuç geçersizdir.
+/// Listeler paylaşılır ve oluşturulduktan sonra değiştirilmez.
+/// </summary>
+internal sealed record MachineEvaluation(
+    AgentReportDto Report,
+    List<ProductDefinitionDto> Products,
+    List<ProductStatusDto> ProductStatuses,
+    bool IsHealthy,
+    List<string> RiskReasons);

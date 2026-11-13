@@ -214,6 +214,120 @@ public sealed class ServerStoreTests : IDisposable
         Assert.All(products, product => Assert.True(product.UpdatedAtUtc > DateTimeOffset.UnixEpoch));
     }
 
+    [Fact]
+    public async Task CevrimdisiEsigi_RaporAraligindanKisaOlamaz()
+    {
+        var store = CreateStore();
+        await store.InitializeAsync();
+
+        // 600 sn rapor aralığıyla 10 dakikalık eşik, makineleri raporlar arasında çevrimdışı gösterir.
+        var error = await Assert.ThrowsAsync<StoreValidationException>(() => store.UpdateSettingsAsync(
+            new UpdateAdminSettingsRequest
+            {
+                ReportIntervalSeconds = 600,
+                OfflineThresholdMinutes = 10,
+                HistoryLimit = 50
+            }));
+        Assert.Contains("en az 11 dakika", error.Message);
+
+        var saved = await store.UpdateSettingsAsync(new UpdateAdminSettingsRequest
+        {
+            ReportIntervalSeconds = 600,
+            OfflineThresholdMinutes = 11,
+            HistoryLimit = 50
+        });
+        Assert.Equal(11, saved.OfflineThresholdMinutes);
+
+        // En uzun rapor aralığı için de geçerli bir eşik seçilebilmeli.
+        var longest = await store.UpdateSettingsAsync(new UpdateAdminSettingsRequest
+        {
+            ReportIntervalSeconds = 86_400,
+            OfflineThresholdMinutes = 2_880,
+            HistoryLimit = 50
+        });
+        Assert.Equal(86_400, longest.ReportIntervalSeconds);
+    }
+
+    [Fact]
+    public async Task UrunGuncelleme_DegisiklikYoksaSurumArtirmaz()
+    {
+        var store = CreateStore();
+        await store.InitializeAsync();
+
+        var product = (await store.GetProductsAsync()).First();
+        var before = (await store.GetAdminSettingsAsync()).ConfigVersion;
+
+        var same = await store.UpdateProductAsync(product.Id, new ProductUpsertRequest
+        {
+            DisplayName = product.DisplayName,
+            ServiceNames = product.ServiceNames.ToList(),
+            MatchMode = product.MatchMode,
+            Enabled = product.Enabled,
+            SortOrder = product.SortOrder
+        });
+
+        Assert.Equal(before, (await store.GetAdminSettingsAsync()).ConfigVersion);
+        Assert.Equal(product.UpdatedAtUtc, same.UpdatedAtUtc);
+
+        await store.UpdateProductAsync(product.Id, new ProductUpsertRequest
+        {
+            DisplayName = product.DisplayName,
+            ServiceNames = new List<string> { "BaskaServis" },
+            MatchMode = product.MatchMode,
+            Enabled = product.Enabled,
+            SortOrder = product.SortOrder
+        });
+
+        Assert.Equal(before + 1, (await store.GetAdminSettingsAsync()).ConfigVersion);
+    }
+
+    [Fact]
+    public async Task MakineSilme_KaydiVeDosyayiKaldirir()
+    {
+        var store = CreateStore();
+        await store.InitializeAsync();
+        await store.SaveReportAsync(CreateReport(DateTimeOffset.UtcNow));
+
+        var filePath = Path.Combine(_dataDirectory, "machines", $"{MachineId}.json");
+        Assert.True(File.Exists(filePath));
+
+        Assert.False(await store.DeleteMachineAsync("gecersiz-kimlik"));
+        Assert.False(await store.DeleteMachineAsync("ffffffffffffffffffffffffffffffff"));
+        Assert.True(await store.DeleteMachineAsync(MachineId.ToUpperInvariant()));
+
+        Assert.False(File.Exists(filePath));
+        Assert.Null(await store.GetMachineDetailAsync(MachineId));
+        Assert.Equal(0, (await store.GetDashboardAsync(null, null, null, null, 1, 50)).Summary.Total);
+
+        // Silinen makine sunucu yeniden başlatıldığında geri gelmemeli.
+        var reloaded = CreateStore();
+        await reloaded.InitializeAsync();
+        Assert.Null(await reloaded.GetMachineDetailAsync(MachineId));
+
+        // Ajan yeniden rapor gönderirse kayıt tekrar oluşur.
+        await reloaded.SaveReportAsync(CreateReport(DateTimeOffset.UtcNow));
+        Assert.NotNull(await reloaded.GetMachineDetailAsync(MachineId));
+    }
+
+    [Theory]
+    [InlineData("istanbul")]
+    [InlineData("İSTANBUL")]
+    [InlineData("ıstanbul")]
+    [InlineData("sube")]
+    public async Task Arama_TurkceKarakterFarkiniYokSayar(string term)
+    {
+        var store = CreateStore();
+        await store.InitializeAsync();
+
+        var report = CreateReport(DateTimeOffset.UtcNow);
+        report.MachineName = "İSTANBUL-ŞUBE-01";
+        await store.SaveReportAsync(report);
+
+        var dashboard = await store.GetDashboardAsync(null, term, null, null, 1, 50);
+
+        Assert.Equal(1, dashboard.FilteredCount);
+    }
+
     private ServerStore CreateStore()
     {
         var options = new ServerOptions { DataDirectory = _dataDirectory };

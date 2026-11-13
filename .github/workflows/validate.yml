@@ -9,7 +9,7 @@ permissions:
 jobs:
   windows:
     runs-on: windows-latest
-    timeout-minutes: 30
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -54,10 +54,30 @@ jobs:
         if: always()
         shell: pwsh
         run: Remove-Item (Join-Path $env:RUNNER_TEMP 'bertool-sign.pfx') -Force -ErrorAction SilentlyContinue
-      - name: Verify Windows installation, appwiz Publisher and icon
+      - name: Install setups and verify appwiz Publisher and icon
+        id: install
         shell: pwsh
-        run: ./tests/Smoke.Installers.ps1
+        run: ./tests/Smoke.Installers.ps1 -Phase Install
+      - name: End-to-end use case scenarios with the real Windows agent
+        shell: pwsh
+        run: |
+          $version = (Select-String -Path Installer/BerToolSetup.iss -Pattern '#define MyAppVersion "(.+)"').Matches[0].Groups[1].Value
+          $restart = "powershell -NoProfile -ExecutionPolicy Bypass -File `"$env:LOCALAPPDATA\BerToolServer\stop-server.ps1`" && powershell -NoProfile -ExecutionPolicy Bypass -File `"$env:LOCALAPPDATA\BerToolServer\start-server.ps1`""
+          python tests/e2e/scenarios.py --base http://127.0.0.1:5081 --agent live `
+            --credentials "$env:LOCALAPPDATA\BerToolServer\data\bootstrap-credentials.txt" `
+            --expect-version $version --server-restart-cmd $restart `
+            --output "dist/$version/e2e-results.json"
+          if ($LASTEXITCODE) {
+            Get-Content "$env:LOCALAPPDATA\BerTool\Logs\tray-agent.log" -Tail 80 -ErrorAction SilentlyContinue
+            Get-Content "$env:LOCALAPPDATA\BerToolServer\logs\server.out.log" -Tail 80 -ErrorAction SilentlyContinue
+            exit $LASTEXITCODE
+          }
+      - name: Uninstall and verify cleanup
+        if: ${{ always() && steps.install.outcome == 'success' }}
+        shell: pwsh
+        run: ./tests/Smoke.Installers.ps1 -Phase Uninstall
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        if: ${{ always() && steps.install.outcome == 'success' }}
         with:
           name: BerTool-setup-win-x64
           path: dist/*/*

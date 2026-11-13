@@ -42,6 +42,18 @@ internal sealed class AgentReportingService : IDisposable
         }
     }
 
+    /// <summary>Bir sonraki planlı raporun zamanı; henüz rapor gönderilmediyse geçmişte bir andır.</summary>
+    public DateTimeOffset NextReportAtUtc
+    {
+        get
+        {
+            lock (_stateLock)
+            {
+                return _nextReportAtUtc;
+            }
+        }
+    }
+
     public string? LastError
     {
         get
@@ -104,9 +116,14 @@ internal sealed class AgentReportingService : IDisposable
             var lastSuccess = _lastSuccessAtUtc.Value.ToLocalTime();
             var next = _nextReportAtUtc == DateTimeOffset.MinValue
                 ? "hemen"
-                : _nextReportAtUtc.ToLocalTime().ToString("HH:mm");
+                : _nextReportAtUtc.ToLocalTime().ToString("HH:mm:ss");
 
-            return $"Sunucu raporu: {lastSuccess:HH:mm} · sonraki {next}";
+            // Yapılandırma sürümü, konsolda yapılan değişikliğin bu makineye
+            // ulaşıp ulaşmadığını kullanıcının da görebilmesini sağlar.
+            var configVersion = _configurationProvider.Current.ConfigVersion;
+            var configText = configVersion > 0 ? $" · yapılandırma v{configVersion}" : string.Empty;
+
+            return $"Sunucu raporu: {lastSuccess:HH:mm:ss} · sonraki {next}{configText}";
         }
     }
 

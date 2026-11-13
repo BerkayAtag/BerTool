@@ -16,10 +16,24 @@ internal sealed class ServerStore
     private const int MaxHistoryReplacementSeconds = 10;
     private const int MaxMachines = 10_000;
     private const int MaxStoredMachineFileBytes = 4 * 1024 * 1024;
+    private const int MaxOfflineThresholdMinutes = 2_880;
+
+    // Çevrimdışı eşiği rapor aralığından en az bu kadar uzun olmalıdır; aksi
+    // halde sağlıklı makineler iki rapor arasında "Çevrimdışı" görünür.
+    private const int OfflineGraceSeconds = 60;
     private static readonly Regex MachineIdPattern = new("^[a-fA-F0-9]{16,64}$", RegexOptions.Compiled);
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
     {
         WriteIndented = true,
+        Converters = { new JsonStringEnumConverter(JsonNamingPolicy.CamelCase) }
+    };
+
+    // Makine kayıtları ~300 servislik anlık görüntü içerir ve her raporda yeniden
+    // yazılır; girintisiz biçim dosyayı ve disk yükünü belirgin biçimde küçültür.
+    // server.json elle düzenlenebilsin diye girintili kalır.
+    private static readonly JsonSerializerOptions MachineJsonOptions = new(JsonSerializerDefaults.Web)
+    {
+        WriteIndented = false,
         Converters = { new JsonStringEnumConverter(JsonNamingPolicy.CamelCase) }
     };
 
@@ -283,6 +297,12 @@ internal sealed class ServerStore
             };
 
             record.LatestReport = report;
+            record.Evaluation = new MachineEvaluation(
+                report,
+                _data.Products,
+                report.ServiceStatuses,
+                isHealthy,
+                riskReasons);
             record.LastSeenUtc = now;
             record.History ??= new List<MachineHistoryEntryDto>();
             record.History.RemoveAll(item => item is null);
@@ -349,9 +369,7 @@ internal sealed class ServerStore
         try
         {
             var now = DateTimeOffset.UtcNow;
-            var summaries = _machines.Values
-                .Select(record => BuildSummary(record, now))
-                .ToList();
+            var summaries = BuildAllSummaries(now);
 
             var summary = new DashboardSummaryDto
             {
@@ -362,6 +380,25 @@ internal sealed class ServerStore
                 OutdatedConfiguration = summaries.Count(item => !item.IsConfigCurrent)
             };
 
+            // Ürün başına sorunlu makine sayısı tek geçişte toplanır.
+            var unhealthyCounts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+            foreach (var item in summaries)
+            {
+                if (item.Status == "offline")
+                {
+                    continue;
+                }
+
+                foreach (var productStatus in item.ProductStatuses)
+                {
+                    if (!productStatus.IsHealthy)
+                    {
+                        unhealthyCounts[productStatus.ProductId] =
+                            unhealthyCounts.GetValueOrDefault(productStatus.ProductId) + 1;
+                    }
+                }
+            }
+
             var productFilters = _data.Products
                 .OrderBy(product => product.SortOrder)
                 .ThenBy(product => product.DisplayName, StringComparer.CurrentCulture)
@@ -370,57 +407,11 @@ internal sealed class ServerStore
                     Id = product.Id,
                     DisplayName = product.DisplayName,
                     Enabled = product.Enabled,
-                    UnhealthyMachineCount = summaries.Count(item =>
-                        item.Status != "offline" &&
-                        item.ProductStatuses.Any(productStatus =>
-                            string.Equals(productStatus.ProductId, product.Id, StringComparison.OrdinalIgnoreCase) &&
-                            !productStatus.IsHealthy))
+                    UnhealthyMachineCount = unhealthyCounts.GetValueOrDefault(product.Id)
                 })
                 .ToList();
 
-            IEnumerable<MachineSummaryDto> query = summaries;
-
-            if (!string.IsNullOrWhiteSpace(status) &&
-                !string.Equals(status, "all", StringComparison.OrdinalIgnoreCase))
-            {
-                query = query.Where(item => string.Equals(item.Status, status, StringComparison.OrdinalIgnoreCase));
-            }
-
-            if (!string.IsNullOrWhiteSpace(productId))
-            {
-                query = query.Where(item => item.ProductStatuses.Any(productStatus =>
-                    string.Equals(productStatus.ProductId, productId, StringComparison.OrdinalIgnoreCase)));
-
-                if (string.Equals(productState, "unhealthy", StringComparison.OrdinalIgnoreCase))
-                {
-                    query = query.Where(item => item.ProductStatuses.Any(productStatus =>
-                        string.Equals(productStatus.ProductId, productId, StringComparison.OrdinalIgnoreCase) &&
-                        !productStatus.IsHealthy));
-                }
-                else if (string.Equals(productState, "healthy", StringComparison.OrdinalIgnoreCase))
-                {
-                    query = query.Where(item => item.ProductStatuses.Any(productStatus =>
-                        string.Equals(productStatus.ProductId, productId, StringComparison.OrdinalIgnoreCase) &&
-                        productStatus.IsHealthy));
-                }
-            }
-
-            if (!string.IsNullOrWhiteSpace(search))
-            {
-                var term = search.Trim();
-                query = query.Where(item => MatchesSearch(item, term));
-            }
-
-            var ordered = query
-                .OrderBy(item => item.Status switch
-                {
-                    "risky" => 0,
-                    "healthy" => 1,
-                    _ => 2
-                })
-                .ThenByDescending(item => item.LastSeenUtc)
-                .ThenBy(item => item.MachineName, StringComparer.CurrentCulture)
-                .ToList();
+            var ordered = FilterAndOrder(summaries, status, search, productId, productState);
 
             var filteredCount = ordered.Count;
             page = Math.Clamp(page, 1, 1_000_000);
@@ -443,6 +434,69 @@ internal sealed class ServerStore
         {
             _gate.Release();
         }
+    }
+
+    private List<MachineSummaryDto> BuildAllSummaries(DateTimeOffset now)
+    {
+        var summaries = new List<MachineSummaryDto>(_machines.Count);
+        foreach (var record in _machines.Values)
+        {
+            summaries.Add(BuildSummary(record, now));
+        }
+
+        return summaries;
+    }
+
+    private static List<MachineSummaryDto> FilterAndOrder(
+        List<MachineSummaryDto> summaries,
+        string? status,
+        string? search,
+        string? productId,
+        string? productState)
+    {
+        IEnumerable<MachineSummaryDto> query = summaries;
+
+        if (!string.IsNullOrWhiteSpace(status) &&
+            !string.Equals(status, "all", StringComparison.OrdinalIgnoreCase))
+        {
+            query = query.Where(item => string.Equals(item.Status, status, StringComparison.OrdinalIgnoreCase));
+        }
+
+        if (!string.IsNullOrWhiteSpace(productId))
+        {
+            query = query.Where(item => item.ProductStatuses.Any(productStatus =>
+                string.Equals(productStatus.ProductId, productId, StringComparison.OrdinalIgnoreCase)));
+
+            if (string.Equals(productState, "unhealthy", StringComparison.OrdinalIgnoreCase))
+            {
+                query = query.Where(item => item.ProductStatuses.Any(productStatus =>
+                    string.Equals(productStatus.ProductId, productId, StringComparison.OrdinalIgnoreCase) &&
+                    !productStatus.IsHealthy));
+            }
+            else if (string.Equals(productState, "healthy", StringComparison.OrdinalIgnoreCase))
+            {
+                query = query.Where(item => item.ProductStatuses.Any(productStatus =>
+                    string.Equals(productStatus.ProductId, productId, StringComparison.OrdinalIgnoreCase) &&
+                    productStatus.IsHealthy));
+            }
+        }
+
+        if (!string.IsNullOrWhiteSpace(search))
+        {
+            var term = SearchText.Fold(search.Trim());
+            query = query.Where(item => MatchesSearch(item, term));
+        }
+
+        return query
+            .OrderBy(item => item.Status switch
+            {
+                "risky" => 0,
+                "healthy" => 1,
+                _ => 2
+            })
+            .ThenByDescending(item => item.LastSeenUtc)
+            .ThenBy(item => item.MachineName, StringComparer.CurrentCulture)
+            .ToList();
     }
 
     public async Task<MachineDetailDto?> GetMachineDetailAsync(
@@ -472,6 +526,46 @@ internal sealed class ServerStore
                     .Take(_data.HistoryLimit)
                     .ToList()
             };
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    /// <summary>
+    /// Makine kaydını ve rapor geçmişini siler (ör. hizmet dışı bırakılan
+    /// cihazlar). Ajan yeniden rapor gönderirse makine tekrar oluşturulur.
+    /// </summary>
+    public async Task<bool> DeleteMachineAsync(string machineId, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrEmpty(machineId) || !MachineIdPattern.IsMatch(machineId))
+        {
+            return false;
+        }
+
+        await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            if (!_machines.TryGetValue(machineId, out var record))
+            {
+                return false;
+            }
+
+            // Önce dosya silinir. Silinemezse kayıt bellekte de kalır; aksi halde
+            // sunucu yeniden başladığında makine listeye geri dönerdi.
+            var filePath = Path.Combine(_machinesDirectory, $"{record.MachineId.ToLowerInvariant()}.json");
+            if (File.Exists(filePath))
+            {
+                File.Delete(filePath);
+            }
+
+            _machines.Remove(machineId);
+            _logger.LogInformation(
+                "Makine kaydı silindi: {MachineName} ({MachineId})",
+                record.LatestReport?.MachineName,
+                record.MachineId);
+            return true;
         }
         finally
         {
@@ -559,6 +653,19 @@ internal sealed class ServerStore
                 ?? throw new StoreNotFoundException("Ürün tanımı bulunamadı.");
 
             EnsureUniqueProductName(normalized.DisplayName, existing.Id);
+
+            var unchanged =
+                string.Equals(existing.DisplayName, normalized.DisplayName, StringComparison.Ordinal) &&
+                existing.MatchMode == normalized.MatchMode &&
+                existing.Enabled == normalized.Enabled &&
+                existing.SortOrder == normalized.SortOrder &&
+                existing.ServiceNames.SequenceEqual(normalized.ServiceNames, StringComparer.Ordinal);
+            if (unchanged)
+            {
+                // Değer değişmediyse sürüm artırılmaz; ajanlar gereksiz yere
+                // yapılandırma indirip yeniden raporlamaz.
+                return CloneProduct(existing);
+            }
 
             var previousProducts = _data.Products;
             var previousVersion = _data.ConfigVersion;
@@ -664,9 +771,19 @@ internal sealed class ServerStore
             throw new StoreValidationException("Rapor aralığı 30 ile 86400 saniye arasında olmalıdır.");
         }
 
-        if (request.OfflineThresholdMinutes is < 1 or > 1_440)
+        if (request.OfflineThresholdMinutes is < 1 or > MaxOfflineThresholdMinutes)
         {
-            throw new StoreValidationException("Çevrimdışı eşiği 1 ile 1440 dakika arasında olmalıdır.");
+            throw new StoreValidationException(
+                $"Çevrimdışı eşiği 1 ile {MaxOfflineThresholdMinutes} dakika arasında olmalıdır.");
+        }
+
+        var minimumOfflineMinutes = (request.ReportIntervalSeconds + OfflineGraceSeconds + 59) / 60;
+        if (request.OfflineThresholdMinutes < minimumOfflineMinutes)
+        {
+            throw new StoreValidationException(
+                "Çevrimdışı eşiği rapor aralığından en az 1 dakika uzun olmalıdır; aksi halde makineler " +
+                $"iki rapor arasında çevrimdışı görünür. {request.ReportIntervalSeconds} saniyelik rapor " +
+                $"aralığı için en az {minimumOfflineMinutes} dakika girin.");
         }
 
         if (request.HistoryLimit is < 5 or > 500)
@@ -833,43 +950,18 @@ internal sealed class ServerStore
         string? productState,
         CancellationToken cancellationToken = default)
     {
-        var dashboard = await GetDashboardAsync(
-            status,
-            search,
-            productId,
-            productState,
-            page: 1,
-            pageSize: 100,
-            cancellationToken).ConfigureAwait(false);
-
-        if (dashboard.FilteredCount <= dashboard.Machines.Count)
+        // Tüm sonuç tek geçişte üretilir. Eskiden 100'lük sayfalar halinde pano
+        // sorgusu tekrarlanıyor, her sayfa için bütün filo yeniden değerlendiriliyordu.
+        await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
         {
-            return dashboard.Machines;
+            var summaries = BuildAllSummaries(DateTimeOffset.UtcNow);
+            return FilterAndOrder(summaries, status, search, productId, productState);
         }
-
-        var all = new List<MachineSummaryDto>(dashboard.Machines);
-        var page = 2;
-        while (all.Count < dashboard.FilteredCount)
+        finally
         {
-            var next = await GetDashboardAsync(
-                status,
-                search,
-                productId,
-                productState,
-                page,
-                pageSize: 100,
-                cancellationToken).ConfigureAwait(false);
-
-            if (next.Machines.Count == 0)
-            {
-                break;
-            }
-
-            all.AddRange(next.Machines);
-            page++;
+            _gate.Release();
         }
-
-        return all;
     }
 
     private async Task TrimMachineHistoriesAsync(CancellationToken cancellationToken)
@@ -1150,7 +1242,7 @@ internal sealed class ServerStore
             .Where(product => product is not null)
             .ToList();
         data.ReportIntervalSeconds = Math.Clamp(data.ReportIntervalSeconds, 30, 86_400);
-        data.OfflineThresholdMinutes = Math.Clamp(data.OfflineThresholdMinutes, 1, 1_440);
+        data.OfflineThresholdMinutes = Math.Clamp(data.OfflineThresholdMinutes, 1, MaxOfflineThresholdMinutes);
         data.HistoryLimit = Math.Clamp(data.HistoryLimit, 5, 500);
         data.ConfigVersion = Math.Max(1, data.ConfigVersion);
         data.SessionVersion = Math.Max(1, data.SessionVersion);
@@ -1190,8 +1282,20 @@ internal sealed class ServerStore
                     continue;
                 }
 
-                var json = await File.ReadAllTextAsync(filePath, cancellationToken).ConfigureAwait(false);
-                var record = JsonSerializer.Deserialize<StoredMachine>(json, JsonOptions);
+                StoredMachine? record;
+                await using (var stream = new FileStream(
+                    filePath,
+                    FileMode.Open,
+                    FileAccess.Read,
+                    FileShare.Read,
+                    bufferSize: 16 * 1024,
+                    useAsync: true))
+                {
+                    record = await JsonSerializer
+                        .DeserializeAsync<StoredMachine>(stream, MachineJsonOptions, cancellationToken)
+                        .ConfigureAwait(false);
+                }
+
                 if (record is null ||
                     string.IsNullOrWhiteSpace(record.MachineId) ||
                     !MachineIdPattern.IsMatch(record.MachineId) ||
@@ -1236,18 +1340,19 @@ internal sealed class ServerStore
     {
         Directory.CreateDirectory(_machinesDirectory);
         var filePath = Path.Combine(_machinesDirectory, $"{record.MachineId.ToLowerInvariant()}.json");
-        await WriteJsonAtomicAsync(filePath, record, cancellationToken).ConfigureAwait(false);
+        await WriteJsonAtomicAsync(filePath, record, MachineJsonOptions, cancellationToken).ConfigureAwait(false);
     }
 
     private async Task SaveServerDataAsync(CancellationToken cancellationToken)
     {
         Directory.CreateDirectory(_dataDirectory);
-        await WriteJsonAtomicAsync(_serverFilePath, _data, cancellationToken).ConfigureAwait(false);
+        await WriteJsonAtomicAsync(_serverFilePath, _data, JsonOptions, cancellationToken).ConfigureAwait(false);
     }
 
     private static async Task WriteJsonAtomicAsync<T>(
         string filePath,
         T value,
+        JsonSerializerOptions options,
         CancellationToken cancellationToken)
     {
         var directory = Path.GetDirectoryName(filePath);
@@ -1256,16 +1361,22 @@ internal sealed class ServerStore
             Directory.CreateDirectory(directory);
         }
 
-        var json = JsonSerializer.Serialize(value, JsonOptions);
         var tempPath = $"{filePath}.{Guid.NewGuid():N}.tmp";
 
         try
         {
-            await File.WriteAllTextAsync(
+            // Doğrudan UTF-8 akışına yazılır; büyük makine kayıtlarında on
+            // binlerce karakterlik ara metin (ve büyük nesne yığını yükü) oluşmaz.
+            await using (var stream = new FileStream(
                 tempPath,
-                json,
-                new UTF8Encoding(encoderShouldEmitUTF8Identifier: false),
-                cancellationToken).ConfigureAwait(false);
+                FileMode.CreateNew,
+                FileAccess.Write,
+                FileShare.None,
+                bufferSize: 16 * 1024,
+                useAsync: true))
+            {
+                await JsonSerializer.SerializeAsync(stream, value, options, cancellationToken).ConfigureAwait(false);
+            }
 
             File.Move(tempPath, filePath, overwrite: true);
         }
@@ -1304,6 +1415,14 @@ internal sealed class ServerStore
         report.Services = (report.Services ?? new List<ServiceSnapshotDto>())
             .Where(item => item is not null && !string.IsNullOrWhiteSpace(item.Name))
             .ToList();
+        foreach (var service in report.Services)
+        {
+            // Servis adları filo genelinde tekrar eder; bellekte tek kopya tutulur.
+            service.Name = StringPool.Intern(service.Name);
+            service.DisplayName = StringPool.Intern(service.DisplayName);
+            service.Status = StringPool.Intern(service.Status);
+        }
+
         report.ServiceStatuses = new List<ProductStatusDto>();
         report.BitLockerVolumes = (report.BitLockerVolumes ?? new List<BitLockerVolumeDto>())
             .Where(item => item is not null)
@@ -1319,8 +1438,27 @@ internal sealed class ServerStore
         var report = record.LatestReport;
         var services = report.Services ?? new List<ServiceSnapshotDto>();
         var ipAddresses = report.IpAddresses ?? new List<IpAddressDto>();
-        var productStatuses = ProductHealthEvaluator.EvaluateAll(_data.Products, services);
-        var (isHealthy, riskReasons) = EvaluateRisk(report, productStatuses);
+        // Rapor ve ürün tanımları değişmediyse önceki sonuç kullanılır; pano her
+        // istekte bütün filoyu yeniden değerlendirmez.
+        var evaluation = record.Evaluation;
+        if (evaluation is null ||
+            !ReferenceEquals(evaluation.Report, report) ||
+            !ReferenceEquals(evaluation.Products, _data.Products))
+        {
+            var evaluatedStatuses = ProductHealthEvaluator.EvaluateAll(_data.Products, services);
+            var (evaluatedHealthy, evaluatedReasons) = EvaluateRisk(report, evaluatedStatuses);
+            evaluation = new MachineEvaluation(
+                report,
+                _data.Products,
+                evaluatedStatuses,
+                evaluatedHealthy,
+                evaluatedReasons);
+            record.Evaluation = evaluation;
+        }
+
+        var productStatuses = evaluation.ProductStatuses;
+        var isHealthy = evaluation.IsHealthy;
+        var riskReasons = evaluation.RiskReasons;
         var lastSeen = record.LastSeenUtc == default ? report.CollectedAtUtc : record.LastSeenUtc;
         var firstSeen = record.FirstSeenUtc == default ? lastSeen : record.FirstSeenUtc;
         var isOffline = now - lastSeen > TimeSpan.FromMinutes(_data.OfflineThresholdMinutes);
@@ -1422,9 +1560,9 @@ internal sealed class ServerStore
                 Contains(status.DisplayName, term) || Contains(status.Details, term));
     }
 
-    private static bool Contains(string? value, string term)
+    private static bool Contains(string? value, string foldedTerm)
     {
-        return !string.IsNullOrEmpty(value) && value.Contains(term, StringComparison.OrdinalIgnoreCase);
+        return SearchText.Contains(value, foldedTerm);
     }
 
     private static ProductUpsertRequest NormalizeProductRequest(ProductUpsertRequest request)

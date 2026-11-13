@@ -1,5 +1,5 @@
 ﻿#define MyAppName "BerTool"
-#define MyAppVersion "1.4.0"
+#define MyAppVersion "1.5.0"
 #define MyAppPublisher "Berkay Atağ"
 #define MyAppExeName "BerTool.TrayAgent.exe"
 #define MyAppTaskName "BerTool BitLocker Cache"
@@ -34,7 +34,7 @@ MinVersion=10.0
 UsedUserAreasWarning=no
 CloseApplications=no
 RestartApplications=no
-VersionInfoVersion=1.4.0.0
+VersionInfoVersion=1.5.0.0
 VersionInfoCompany={#MyAppPublisher}
 VersionInfoDescription={#MyAppName} Kurulum
 VersionInfoProductName={#MyAppName}
@@ -54,7 +54,10 @@ Source: "..\src\BerTool.TrayAgent\bin\Release\net8.0-windows\win-x64\publish\*";
 Source: "..\src\BerTool.TrayAgent\Branding\BerToolBrand.ico"; DestDir: "{app}"; DestName: "BerTool.ico"; Flags: ignoreversion
 
 [Icons]
-Name: "{autoprograms}\BerTool"; Filename: "{app}\{#MyAppExeName}"; IconFilename: "{app}\BerTool.ico"; Comment: "BerTool cihaz durumu (tray ajanı)"
+; "--show": kısayol durum penceresini açar. Ajan zaten çalışıyorsa çalışan örnek
+; pencereyi gösterir; aksi halde ikinci başlatma sessizce kapanır ve kullanıcı
+; hiçbir şey görmezdi.
+Name: "{autoprograms}\BerTool"; Filename: "{app}\{#MyAppExeName}"; Parameters: "--show"; IconFilename: "{app}\BerTool.ico"; Comment: "BerTool cihaz durumunu gösterir"
 
 [InstallDelete]
 ; Yalnizca istemciye ait kesin adlar temizlenir. "BerTool*.lnk" gibi joker
@@ -72,7 +75,10 @@ Root: HKLM; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: 
 [Run]
 Filename: "{app}\{#MyAppExeName}"; Parameters: "--update-bitlocker-cache"; StatusMsg: "BitLocker önbelleği güncelleniyor..."; Flags: runhidden waituntilterminated
 Filename: "{app}\{#MyAppExeName}"; Parameters: "--register-bitlocker-task"; StatusMsg: "BitLocker önbellek görevi oluşturuluyor..."; Flags: runhidden waituntilterminated
-Filename: "{app}\{#MyAppExeName}"; Description: "BerTool'u başlat"; Flags: nowait runasoriginaluser
+; Etkileşimli kurulumda durum penceresi açılır ki kullanıcı ajanın çalıştığını
+; görsün; sessiz kurulumda yalnızca tray simgesi başlar.
+Filename: "{app}\{#MyAppExeName}"; Parameters: "--show"; Flags: nowait runasoriginaluser; Check: not WizardSilent
+Filename: "{app}\{#MyAppExeName}"; Flags: nowait runasoriginaluser; Check: WizardSilent
 
 [UninstallRun]
 Filename: "{sys}\schtasks.exe"; Parameters: "/Delete /TN ""{#MyAppTaskName}"" /F"; Flags: runhidden; RunOnceId: "DeleteBitLockerCacheTask"

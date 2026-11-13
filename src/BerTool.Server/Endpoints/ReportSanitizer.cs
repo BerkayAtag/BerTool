@@ -1,3 +1,4 @@
+using BerTool.Server.Storage;
 using BerTool.Shared.Contracts;
 using System.Net;
 using System.Text;
@@ -51,10 +52,12 @@ internal static class ReportSanitizer
             .Take(1_500)
             .Select(item => new ServiceSnapshotDto
             {
-                Name = Text(item.Name, 256),
-                DisplayName = Text(item.DisplayName, 256),
-                Status = Text(item.Status, 32)
+                // Servis adları makineler arasında tekrar eder; ortak havuzdan alınır.
+                Name = StringPool.Intern(Text(item.Name, 256)),
+                DisplayName = StringPool.Intern(Text(item.DisplayName, 256)),
+                Status = StringPool.Intern(Text(item.Status, 32))
             })
+            .Where(item => item.Name.Length > 0)
             .ToList();
 
         report.ServiceStatuses = new List<ProductStatusDto>();

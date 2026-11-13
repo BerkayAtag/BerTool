@@ -15,7 +15,31 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Threading.RateLimiting;
 
-var builder = WebApplication.CreateBuilder(args);
+// Yayınlanmış kurulumda ayarlar, wwwroot ve göreli veri dizini exe'nin yanındadır.
+// Sunucu başka bir çalışma dizininden (servis yöneticisi, zamanlanmış görev, farklı
+// "Başlama yeri" olan kısayol) başlatıldığında da bunların bulunabilmesi için içerik
+// kökü exe klasörüne sabitlenir. Geliştirmede (dotnet run) wwwroot proje klasöründe
+// olduğundan varsayılan (çalışma dizini) korunur.
+var baseDirectory = AppContext.BaseDirectory;
+var builder = WebApplication.CreateBuilder(new WebApplicationOptions
+{
+    Args = args,
+    ContentRootPath = Directory.Exists(Path.Combine(baseDirectory, "wwwroot")) ? baseDirectory : null
+});
+
+// Dinlenecek adres hiçbir kaynaktan verilmediyse yalnızca yerel makine dinlenir.
+// Varsayılan bilinçli olarak appsettings.json içinde tutulmaz: orada tanımlı bir
+// "Urls" değeri ASPNETCORE_URLS ortam değişkenini geçersiz kılıyordu.
+const string defaultUrl = "http://127.0.0.1:5080";
+var hasExplicitAddress =
+    !string.IsNullOrWhiteSpace(builder.Configuration[WebHostDefaults.ServerUrlsKey]) ||
+    !string.IsNullOrWhiteSpace(builder.Configuration["http_ports"]) ||
+    !string.IsNullOrWhiteSpace(builder.Configuration["https_ports"]) ||
+    builder.Configuration.GetSection("Kestrel:Endpoints").GetChildren().Any();
+if (!hasExplicitAddress)
+{
+    builder.WebHost.UseUrls(defaultUrl);
+}
 
 builder.WebHost.ConfigureKestrel(options =>
 {
@@ -300,10 +324,13 @@ app.UseStaticFiles(new StaticFileOptions
     }
 });
 
+var serverVersion = typeof(Program).Assembly.GetName().Version?.ToString(3) ?? "0.0.0";
+
 app.MapGet("/healthz", () => Results.Ok(new
 {
     status = "ok",
     service = "BerTool.Server",
+    version = serverVersion,
     serverTimeUtc = DateTimeOffset.UtcNow
 }));
 
@@ -311,8 +338,9 @@ app.MapAgentEndpoints();
 app.MapAdminEndpoints();
 
 app.Logger.LogInformation(
-    "BerTool sunucusu başlatılıyor. Veri dizini: {DataDirectory}. Arayüz: {Urls}",
+    "BerTool sunucusu {Version} başlatılıyor. Veri dizini: {DataDirectory}. Arayüz: {Urls}",
+    serverVersion,
     dataDirectory,
-    builder.Configuration["Urls"] ?? "http://localhost:5080");
+    builder.Configuration[WebHostDefaults.ServerUrlsKey] ?? defaultUrl);
 
 app.Run();

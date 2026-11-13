@@ -13,6 +13,12 @@ internal sealed class NetworkQualityChecker
     private static readonly object InternetSpeedLock = new();
     private static readonly TimeSpan InternetSpeedCacheDuration = TimeSpan.FromMinutes(10);
 
+    // Ölçüm adresi engelliyse (kurumsal güvenlik duvarı/proxy) her denemede iki
+    // kez 15 saniyelik zaman aşımı beklenir. Bu, 45 saniyelik durum yenilemesini
+    // ve sunucudaki yapılandırma değişikliklerinin uygulanmasını geciktirir;
+    // başarısız ölçüm bu süre dolmadan yeniden denenmez.
+    private static readonly TimeSpan InternetSpeedFailureBackoff = TimeSpan.FromMinutes(5);
+
     private const int DownloadAttemptTimeoutSeconds = 15;
     private const int DownloadBufferBytes = 64 * 1024;
     private const long MinimumSampleBytes = 512 * 1024;
@@ -28,8 +34,11 @@ internal sealed class NetworkQualityChecker
         "BerTool",
         "NetworkSpeedTest");
 
+    // Zaman damgaları Environment.TickCount64 (ms) ile tutulur; sistem saati
+    // değişse de önbellek ve bekleme süreleri doğru hesaplanır.
     private static InternetSpeedResult? cachedInternetSpeed;
-    private static DateTime cachedInternetSpeedAt = DateTime.MinValue;
+    private static long cachedInternetSpeedAtTicks = long.MinValue;
+    private static long lastInternetSpeedFailureAtTicks = long.MinValue;
 
     public NetworkQualityInfo GetNetworkQuality()
     {
@@ -168,25 +177,45 @@ internal sealed class NetworkQualityChecker
     {
         try
         {
+            var now = Environment.TickCount64;
             lock (InternetSpeedLock)
             {
                 if (cachedInternetSpeed is not null &&
-                    DateTime.Now - cachedInternetSpeedAt < InternetSpeedCacheDuration)
+                    cachedInternetSpeedAtTicks != long.MinValue &&
+                    now - cachedInternetSpeedAtTicks < (long)InternetSpeedCacheDuration.TotalMilliseconds)
                 {
                     return cachedInternetSpeed;
+                }
+
+                if (lastInternetSpeedFailureAtTicks != long.MinValue &&
+                    now - lastInternetSpeedFailureAtTicks < (long)InternetSpeedFailureBackoff.TotalMilliseconds)
+                {
+                    return null;
                 }
             }
 
             CleanSpeedTestFiles();
 
             var result = TryMeasureInternetSpeedAsync().GetAwaiter().GetResult();
-            if (result is not null)
+            lock (InternetSpeedLock)
             {
-                lock (InternetSpeedLock)
+                if (result is not null)
                 {
                     cachedInternetSpeed = result;
-                    cachedInternetSpeedAt = DateTime.Now;
+                    cachedInternetSpeedAtTicks = Environment.TickCount64;
+                    lastInternetSpeedFailureAtTicks = long.MinValue;
                 }
+                else
+                {
+                    cachedInternetSpeed = null;
+                    lastInternetSpeedFailureAtTicks = Environment.TickCount64;
+                }
+            }
+
+            if (result is null)
+            {
+                Logger.Warn(
+                    $"İnternet hızı ölçülemedi; {InternetSpeedFailureBackoff.TotalMinutes:0} dakika sonra yeniden denenecek.");
             }
 
             return result;
@@ -290,6 +319,8 @@ internal sealed class NetworkQualityChecker
 
             var buffer = new byte[DownloadBufferBytes];
             long? firstByteLatencyMilliseconds = null;
+            var firstReadBytes = 0L;
+            var firstReadSeconds = 0D;
             var totalBytes = 0L;
             var timedOut = false;
 
@@ -307,6 +338,8 @@ internal sealed class NetworkQualityChecker
                     if (!firstByteLatencyMilliseconds.HasValue)
                     {
                         firstByteLatencyMilliseconds = stopwatch.ElapsedMilliseconds;
+                        firstReadBytes = bytesRead;
+                        firstReadSeconds = stopwatch.Elapsed.TotalSeconds;
                     }
 
                     await fileStream.WriteAsync(buffer.AsMemory(0, bytesRead), cancellationToken).ConfigureAwait(false);
@@ -327,7 +360,11 @@ internal sealed class NetworkQualityChecker
                 return null;
             }
 
-            var mbps = totalBytes * 8D / stopwatch.Elapsed.TotalSeconds / 1_000_000D;
+            var mbps = NetworkSpeedMath.CalculateMbps(
+                totalBytes,
+                firstReadBytes,
+                firstReadSeconds,
+                stopwatch.Elapsed.TotalSeconds);
             if (timedOut)
             {
                 Logger.Warn(

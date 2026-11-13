@@ -2,9 +2,16 @@
 # (GitHub Actions windows-latest) iki setup dosyasını sessiz kurar, Programlar ve
 # Özellikler kaydını (yayıncı, sürüm, simge), çalışan sunucuyu, ajan raporunu ve
 # kaldırmayı doğrular. Sonuç dist\<sürüm>\installation-verification.json dosyasına yazılır.
+#
+# -Phase Install   : yalnızca kurar ve doğrular (sunucu ve tray ajanı çalışır kalır;
+#                    ardından tests/e2e/scenarios.py gerçek ajanla çalıştırılabilir)
+# -Phase Uninstall : kaldırır ve temizliği doğrular
+# -Phase All       : ikisi birden (varsayılan)
 param(
-    [string]$Version = '1.4.0',
-    [string]$ExpectedPublisher = "Berkay Ata$([char]0x011F)"
+    [string]$Version = '1.5.0',
+    [string]$ExpectedPublisher = "Berkay Ata$([char]0x011F)",
+    [ValidateSet('All', 'Install', 'Uninstall')]
+    [string]$Phase = 'All'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -74,6 +81,7 @@ function Test-Entry($entry, [string]$component) {
     })
 }
 
+if ($Phase -ne 'Uninstall') {
 Assert (Test-Path $serverSetup) "sunucu setup dosyası bulundu"
 Assert (Test-Path $clientSetup) "istemci setup dosyası bulundu"
 
@@ -123,10 +131,28 @@ if (Test-Path $agentLog) {
     Assert (-not ($log -match 'GetEncryptionMethod')) "BitLocker WMI çağrısı hatasız"
 }
 
+# Sessiz kurulum ajanı tray kipinde başlatır; uçtan uca senaryolar bu süreci kullanır.
+$trayStarted = $true
+try {
+    Wait-Until { $null -ne (Get-Process -Name 'BerTool.TrayAgent' -ErrorAction SilentlyContinue) } 30 'tray ajanı' | Out-Null
+}
+catch {
+    $trayStarted = $false
+}
+Assert $trayStarted "kurulum tray ajanını başlattı"
+
+$results | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $dist 'installation-verification.json') -Encoding UTF8
+Write-Host 'Kurulum doğrulamaları başarılı.'
+}
+
+if ($Phase -ne 'Install') {
 # --- Kaldırma ---
+$clientEntry = Get-UninstallEntry 'HKLM' 'BerTool'
+Assert ($null -ne $clientEntry) "kaldırılacak istemci kaydı bulundu"
 & (Join-Path $clientEntry.InstallLocation 'unins000.exe') /VERYSILENT /SUPPRESSMSGBOXES /NORESTART
 Wait-Until { $null -eq (Get-UninstallEntry 'HKLM' 'BerTool') } 120 'istemci kaldırma' | Out-Null
 Assert ($null -eq (Get-ScheduledTask -TaskName 'BerTool BitLocker Cache' -ErrorAction SilentlyContinue)) "BitLocker görevi kaldırıldı"
+Assert ($null -eq (Get-Process -Name 'BerTool.TrayAgent' -ErrorAction SilentlyContinue)) "tray ajanı kaldırmada durduruldu"
 Assert (Test-Path "$env:ProgramData\BerTool\agent-settings.json") "ajan ayarı kaldırmada korundu"
 
 $serverEntry = Get-UninstallEntry 'HKCU' 'BerTool Sunucu'
@@ -135,5 +161,5 @@ Wait-Until { $null -eq (Get-UninstallEntry 'HKCU' 'BerTool Sunucu') } 120 'sunuc
 Assert ($null -eq (Get-Process -Name 'BerTool.Server' -ErrorAction SilentlyContinue)) "sunucu süreci durduruldu"
 Assert (Test-Path (Join-Path $env:LOCALAPPDATA 'BerToolServer\data\server.json')) "sunucu verisi kaldırmada korundu"
 
-$results | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $dist 'installation-verification.json') -Encoding UTF8
-Write-Host 'Tüm kurulum doğrulamaları başarılı.'
+Write-Host 'Kaldırma doğrulamaları başarılı.'
+}
