@@ -664,6 +664,11 @@ def uc17(r, env, agent):
 
 
 def main():
+    # Windows konsolu varsayılan olarak cp1252/cp857 kullanır; Türkçe çıktı için UTF-8.
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, 'reconfigure'):
+            stream.reconfigure(encoding='utf-8', errors='replace')
+
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('--base', default='http://127.0.0.1:5081')
     parser.add_argument('--credentials', help='bootstrap-credentials.txt yolu (şifre ve API anahtarı buradan okunur)')

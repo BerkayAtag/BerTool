@@ -60,6 +60,9 @@ jobs:
         run: ./tests/Smoke.Installers.ps1 -Phase Install
       - name: End-to-end use case scenarios with the real Windows agent
         shell: pwsh
+        env:
+          PYTHONUTF8: '1'
+          PYTHONIOENCODING: utf-8
         run: |
           $version = (Select-String -Path Installer/BerToolSetup.iss -Pattern '#define MyAppVersion "(.+)"').Matches[0].Groups[1].Value
           $restart = "powershell -NoProfile -ExecutionPolicy Bypass -File `"$env:LOCALAPPDATA\BerToolServer\stop-server.ps1`" && powershell -NoProfile -ExecutionPolicy Bypass -File `"$env:LOCALAPPDATA\BerToolServer\start-server.ps1`""

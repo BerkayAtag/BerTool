@@ -45,6 +45,8 @@ Tüm arayüz, log ve dokümantasyon Türkçedir.
 
 Programlar ve Özellikler (`appwiz.cpl`) içinde her iki ürün de kırmızı BerTool simgesi ve **Berkay Atağ** yayıncı adıyla görünür. Yayınlanan 1.5.0 kurulum dosyaları henüz Authenticode ile imzalı değildir; Windows SmartScreen uyarısında *Ek bilgi → Yine de çalıştır* seçin. Derleme hattı imzalamaya hazırdır; ayrıntılar [Kod imzalama](#kod-imzalama) bölümündedir.
 
+> **Akıllı Uygulama Denetimi (Smart App Control):** Bu özellik açık olan Windows 11 makinelerinde imzasız uygulamalar, SmartScreen uyarısından farklı olarak doğrudan engellenebilir. Bu makinelerde BerTool'u çalıştırmak için kurulum dosyalarının güvenilir bir kod imzalama sertifikasıyla imzalanması gerekir.
+
 ## Ekranlar
 
 | Makine detayı | Ürün tanımları |
