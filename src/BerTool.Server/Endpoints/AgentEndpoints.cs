@@ -33,7 +33,8 @@ internal static class AgentEndpoints
             ILogger<Program> logger,
             CancellationToken cancellationToken) =>
         {
-            if (!IsAuthorized(context, store))
+            var keyMatch = MatchApiKey(context, store);
+            if (keyMatch == AgentKeyMatch.None)
             {
                 logger.LogWarning(
                     "Geçersiz ajan API anahtarıyla rapor denemesi. Uzak IP: {RemoteIp}",
@@ -53,7 +54,7 @@ internal static class AgentEndpoints
 
             try
             {
-                var acknowledgement = await store.SaveReportAsync(normalized, cancellationToken);
+                var acknowledgement = await store.SaveReportAsync(normalized, cancellationToken, keyMatch);
                 return Results.Ok(acknowledgement);
             }
             catch (StoreValidationException exception)
@@ -107,19 +108,24 @@ internal static class AgentEndpoints
 
     private static bool IsAuthorized(HttpContext context, ServerStore store)
     {
+        return MatchApiKey(context, store) != AgentKeyMatch.None;
+    }
+
+    private static AgentKeyMatch MatchApiKey(HttpContext context, ServerStore store)
+    {
         var values = context.Request.Headers[ApiKeyHeader];
         if (values.Count != 1)
         {
-            return false;
+            return AgentKeyMatch.None;
         }
 
         var apiKey = values[0];
         if (string.IsNullOrWhiteSpace(apiKey) || apiKey.Length > MaxApiKeyLength)
         {
-            return false;
+            return AgentKeyMatch.None;
         }
 
-        return store.ValidateAgentApiKey(apiKey);
+        return store.MatchAgentApiKey(apiKey.Trim());
     }
 
     private static IResult Unauthorized()

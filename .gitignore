@@ -6,6 +6,8 @@ obj/
 *.log
 *.tmp
 *.bak
+__pycache__/
+*.pyc
 *.pfx
 *.p12
 *.key

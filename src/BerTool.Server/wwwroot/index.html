@@ -6,9 +6,9 @@
     <meta name="color-scheme" content="light dark">
     <meta name="theme-color" content="#e30613">
     <title>BerTool Güvenlik Konsolu</title>
-    <script src="/theme.js?v=1.5.0"></script>
-    <link rel="stylesheet" href="/styles.css?v=1.5.0">
-    <script src="/app.js?v=1.5.0" defer></script>
+    <script src="/theme.js?v=1.6.0"></script>
+    <link rel="stylesheet" href="/styles.css?v=1.6.0">
+    <script src="/app.js?v=1.6.0" defer></script>
 </head>
 <body>
     <div id="login-view" class="auth-shell hidden">
@@ -150,7 +150,7 @@
                             <label class="search-field">
                                 <span class="sr-only">Makine ara</span>
                                 <span class="search-icon" aria-hidden="true">⌕</span>
-                                <input id="search-input" type="search" placeholder="Makine, kullanıcı, IP veya model ara..." autocomplete="off">
+                                <input id="search-input" type="search" maxlength="200" placeholder="Makine, kullanıcı, IP, model, ürün veya risk nedeni ara..." autocomplete="off">
                             </label>
                             <label class="field field-inline">
                                 <span>Ürün</span>
@@ -160,7 +160,7 @@
                             </label>
                             <label class="field field-inline">
                                 <span>Ürün durumu</span>
-                                <select id="product-state-filter">
+                                <select id="product-state-filter" title="Önce bir ürün seçin">
                                     <option value="all">Tümü</option>
                                     <option value="unhealthy">Sorunlu</option>
                                     <option value="healthy">Sağlıklı</option>
@@ -192,8 +192,18 @@
                         <div class="pagination">
                             <span id="pagination-info" class="muted small"></span>
                             <div class="pagination-buttons">
+                                <label class="page-size-field">
+                                    <span class="sr-only">Sayfa başına makine</span>
+                                    <select id="page-size" title="Sayfa başına makine">
+                                        <option value="25">25 / sayfa</option>
+                                        <option value="50">50 / sayfa</option>
+                                        <option value="100">100 / sayfa</option>
+                                    </select>
+                                </label>
+                                <button id="page-first" class="btn btn-ghost btn-sm" type="button" title="İlk sayfa" aria-label="İlk sayfa">«</button>
                                 <button id="page-prev" class="btn btn-ghost btn-sm" type="button">Önceki</button>
                                 <button id="page-next" class="btn btn-ghost btn-sm" type="button">Sonraki</button>
+                                <button id="page-last" class="btn btn-ghost btn-sm" type="button" title="Son sayfa" aria-label="Son sayfa">»</button>
                             </div>
                         </div>
                     </div>
@@ -366,6 +376,18 @@
                                 <span id="agent-key-state" class="badge badge-neutral">-</span>
                             </div>
                             <p class="panel-text">Anahtar yalnızca özet (hash) olarak saklanır. Mevcut anahtar görüntülenemez; kaybolursa yeni bir anahtar üretip tüm ajanlara dağıtmanız gerekir.</p>
+                            <div id="previous-key-panel" class="key-transition hidden" role="status">
+                                <p id="previous-key-text" class="key-transition-text"></p>
+                                <button id="revoke-previous-key-button" class="btn btn-secondary btn-sm" type="button">Eski anahtarı şimdi iptal et</button>
+                            </div>
+                            <div class="key-rotate-options">
+                                <label class="switch switch-standalone">
+                                    <input id="rotate-keep-previous" type="checkbox" checked>
+                                    <span class="switch-track" aria-hidden="true"></span>
+                                    <span>Eski anahtar 7 gün daha geçerli kalsın</span>
+                                </label>
+                                <p class="muted small">Ajanlar bu sürede yeni anahtarla güncellenirken raporlama kesilmez. Anahtar sızdıysa kapatın; eski anahtar hemen geçersiz olur.</p>
+                            </div>
                             <button id="rotate-key-button" class="btn btn-danger-soft" type="button">Yeni anahtar üret</button>
                             <div id="rotated-key-panel" class="secret-panel hidden">
                                 <label class="field">
@@ -375,7 +397,7 @@
                                         <button id="copy-key-button" class="btn btn-secondary" type="button">Kopyala</button>
                                     </div>
                                 </label>
-                                <p class="warning-text">Bu anahtar bir daha gösterilmeyecek. Tüm ajanların <code>agent-settings.json</code> dosyasını güncelleyin.</p>
+                                <p id="rotated-key-warning" class="warning-text">Bu anahtar bir daha gösterilmeyecek. Tüm ajanların <code>agent-settings.json</code> dosyasını güncelleyin.</p>
                             </div>
                         </div>
 
@@ -388,6 +410,7 @@
                             </div>
                             <p class="panel-text">Ajan ayar dosyası, makine genelinde <code>%PROGRAMDATA%\BerTool\agent-settings.json</code> yolundan okunur. Bu dosya yoksa kullanıcıya özel <code>%LOCALAPPDATA%\BerTool\agent-settings.json</code> kullanılır.</p>
                             <pre id="agent-config-example" class="code-block"></pre>
+                            <p id="agent-config-warning" class="panel-text warning-text hidden"></p>
                             <button id="copy-config-button" class="btn btn-secondary" type="button">Örnek yapılandırmayı kopyala</button>
                         </div>
 

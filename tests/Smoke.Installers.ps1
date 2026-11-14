@@ -8,7 +8,7 @@
 # -Phase Uninstall : kaldırır ve temizliği doğrular
 # -Phase All       : ikisi birden (varsayılan)
 param(
-    [string]$Version = '1.5.0',
+    [string]$Version = '1.6.0',
     [string]$ExpectedPublisher = "Berkay Ata$([char]0x011F)",
     [ValidateSet('All', 'Install', 'Uninstall')]
     [string]$Phase = 'All'

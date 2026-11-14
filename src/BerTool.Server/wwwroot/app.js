@@ -1,5 +1,24 @@
 'use strict';
 
+// Tarayıcı site verisini engellediğinde (kurumsal ilke, çerez ayarı)
+// localStorage erişimi SecurityError fırlatır. Korumasız okuma betiğin en
+// başında çalıştığı için konsol hiç açılmıyor, sayfa boş kalıyordu.
+function storageGet(key) {
+    try {
+        return window.localStorage.getItem(key);
+    } catch {
+        return null;
+    }
+}
+
+function storageSet(key, value) {
+    try {
+        window.localStorage.setItem(key, value);
+    } catch {
+        // Tercih yalnızca bu oturum için geçerli olur.
+    }
+}
+
 const state = {
     session: null,
     currentView: 'dashboard',
@@ -12,13 +31,19 @@ const state = {
         product: '',
         productState: 'all',
         page: 1,
-        pageSize: 50
+        pageSize: [25, 50, 100].includes(Number(storageGet('bertool.pageSize')))
+            ? Number(storageGet('bertool.pageSize'))
+            : 50
     },
-    autoRefresh: localStorage.getItem('bertool.autoRefresh') !== 'false',
+    autoRefresh: storageGet('bertool.autoRefresh') !== 'false',
     refreshTimer: null,
     searchTimer: null,
     loadingDashboard: false,
     dashboardReloadPending: false,
+    // Sunucu saati ile tarayıcı saati arasındaki fark (ms). "x dakika önce"
+    // metinleri sunucu saatine göre hesaplanır; tarayıcı saati geri kaldığında
+    // "3 dakika sonra" gibi metinler görünüyordu.
+    clockSkewMs: 0,
     productFilterSignature: '',
     authOptions: {
         adEnabled: false,
@@ -84,6 +109,19 @@ function formatDate(value) {
     return dateTimeFormatter.format(date);
 }
 
+function serverNow() {
+    return Date.now() + state.clockSkewMs;
+}
+
+function updateClockSkew(serverTimeUtc) {
+    const serverTime = Date.parse(serverTimeUtc || '');
+    if (Number.isFinite(serverTime)) {
+        // Ağ gecikmesi kadar küçük farklar önemsizdir; yalnızca belirgin kaymayı uygula.
+        const skew = serverTime - Date.now();
+        state.clockSkewMs = Math.abs(skew) > 5000 ? skew : 0;
+    }
+}
+
 function timeAgo(value) {
     if (!value) {
         return '-';
@@ -94,7 +132,7 @@ function timeAgo(value) {
         return '-';
     }
 
-    const seconds = Math.round((target - Date.now()) / 1000);
+    const seconds = Math.round((target - serverNow()) / 1000);
     const absolute = Math.abs(seconds);
 
     if (absolute < 15) {
@@ -174,14 +212,19 @@ async function api(path, options = {}) {
     }
 
     if (!response.ok) {
-        if (response.status === 401 && state.session && state.session.authenticated) {
-            toast('Yönetici oturumunuz sona erdi. Lütfen tekrar giriş yapın.', 'error');
-            showLogin();
-        }
-
         const error = new Error(payload?.message || payload?.title || `İstek başarısız oldu (${response.status}).`);
         error.status = response.status;
         error.payload = payload;
+
+        if (response.status === 401 && state.session && state.session.authenticated) {
+            toast('Yönetici oturumunuz sona erdi. Lütfen tekrar giriş yapın.', 'error');
+            showLogin();
+
+            // Kullanıcı zaten bilgilendirildi; çağıranlar ikinci bir hata
+            // bildirimi göstermez.
+            error.handled = true;
+        }
+
         throw error;
     }
 
@@ -192,7 +235,7 @@ function toast(message, type = 'info') {
     const root = byId('toast-root');
     const element = document.createElement('div');
     element.className = `toast toast-${type}`;
-    element.setAttribute('role', 'status');
+    element.setAttribute('role', type === 'error' ? 'alert' : 'status');
     element.textContent = message;
     root.appendChild(element);
 
@@ -300,6 +343,10 @@ async function handleLogin(event) {
 }
 
 async function handleLogout() {
+    // Oturum zaten düşmüşse çıkış isteği 401 döner; bu durumda "oturumunuz
+    // sona erdi" bildirimi yanıltıcıdır, kullanıcı zaten çıkış yapıyor.
+    state.session = null;
+
     try {
         await api('/api/admin/logout', { method: 'POST' });
     } catch (error) {
@@ -436,21 +483,31 @@ async function loadDashboard(options = {}) {
     refreshButton.classList.add('loading');
 
     try {
-        const params = dashboardQuery();
-        const dashboard = await api(`/api/admin/dashboard?${params.toString()}`);
-        state.dashboard = dashboard;
+        const query = dashboardQuery().toString();
+        const dashboard = await api(`/api/admin/dashboard?${query}`);
 
-        const totalPages = Math.max(1, Math.ceil(dashboard.filteredCount / state.filters.pageSize));
-        if (state.filters.page > totalPages) {
-            state.filters.page = totalPages;
-            reloadForPage = true;
+        if (dashboardQuery().toString() !== query) {
+            // İstek sürerken filtre, arama veya sayfa değişti. Eski sonuç yeni
+            // filtrelerin altında gösterilmez; güncel sorguyla yeniden yüklenir.
+            state.dashboardReloadPending = true;
+        } else {
+            updateClockSkew(dashboard.generatedAtUtc);
+
+            const totalPages = Math.max(1, Math.ceil(dashboard.filteredCount / state.filters.pageSize));
+            if (state.filters.page > totalPages) {
+                // Sayfa artık yok (ör. makineler silindi). Boş sayfayı ve "henüz
+                // makine yok" metnini göstermeden son sayfayı yükle.
+                state.filters.page = totalPages;
+                reloadForPage = true;
+            } else {
+                state.dashboard = dashboard;
+                renderSummary();
+                renderProductFilter();
+                renderMachineTable();
+                renderPagination();
+                byId('last-updated').textContent = `Son yenileme: ${new Date().toLocaleTimeString('tr-TR')}`;
+            }
         }
-
-        renderSummary();
-        renderProductFilter();
-        renderMachineTable();
-        renderPagination();
-        byId('last-updated').textContent = `Son yenileme: ${new Date().toLocaleTimeString('tr-TR')}`;
     } catch (error) {
         if (error.status !== 401) {
             toast(`Makine listesi alınamadı: ${describeError(error)}`, 'error');
@@ -475,10 +532,10 @@ async function loadDashboard(options = {}) {
 
 function renderSummary() {
     const summary = state.dashboard?.summary || { total: 0, healthy: 0, risky: 0, offline: 0 };
-    byId('summary-total').textContent = summary.total;
-    byId('summary-healthy').textContent = summary.healthy;
-    byId('summary-risky').textContent = summary.risky;
-    byId('summary-offline').textContent = summary.offline;
+    byId('summary-total').textContent = formatCount(summary.total);
+    byId('summary-healthy').textContent = formatCount(summary.healthy);
+    byId('summary-risky').textContent = formatCount(summary.risky);
+    byId('summary-offline').textContent = formatCount(summary.offline);
 
     document.querySelectorAll('[data-status-filter]').forEach(element => {
         element.classList.toggle('active', element.dataset.statusFilter === state.filters.status);
@@ -508,15 +565,24 @@ function renderProductFilter() {
 
         state.productFilterSignature = signature;
         select.value = products.some(product => product.id === currentValue) ? currentValue : '';
-        if (select.value === '') {
+        if (select.value === '' && state.filters.product) {
+            // Seçili ürün silinmiş (ör. başka sekmede). Filtre "Tüm ürünler"e
+            // döner; tablo boş kalmasın diye liste yeni filtreyle yeniden yüklenir.
             state.filters.product = '';
+            state.filters.productState = 'all';
+            state.filters.page = 1;
+            state.dashboardReloadPending = true;
         }
     }
 
     byId('product-filter').value = state.filters.product;
     byId('product-state-filter').value = state.filters.productState;
     byId('product-state-filter').disabled = !state.filters.product;
-    byId('search-input').value = state.filters.search;
+
+    // Arama kutusu burada yeniden yazılmaz. Eskiden her yanıt sonrası kutuya
+    // kırpılmış değer yazılıyordu: kelimeler arasındaki boşluk siliniyor
+    // ("Dell Latitude" → "DellLatitude"), yanıt geldiği anda basılan tuş
+    // kayboluyordu. Kutu yalnızca kullanıcı ve resetFilters tarafından değişir.
 
     document.querySelectorAll('[data-status-filter]').forEach(element => {
         element.classList.toggle('active', element.dataset.statusFilter === state.filters.status);
@@ -563,9 +629,12 @@ function renderMachineTable() {
                 ? '<span class="chip chip-neutral">Bekleniyor</span>'
                 : '<span class="chip chip-ok">Sorun yok</span>';
 
-        const configWarning = machine.isConfigCurrent
+        const configWarning = (machine.isConfigCurrent
             ? ''
-            : '<span class="text-warn"> · eski yapılandırma</span>';
+            : '<span class="text-warn"> · eski yapılandırma</span>') +
+            (machine.usesPreviousApiKey
+                ? '<span class="text-warn" title="Bu makine yenilenmeden önceki ajan API anahtarını kullanıyor; ayarı güncellenmeli."> · eski anahtar</span>'
+                : '');
 
         const firstIp = machine.ipAddresses?.[0] || '-';
         const extraIp = machine.ipAddresses?.length > 1
@@ -576,7 +645,7 @@ function renderMachineTable() {
             <tr>
                 <td><span class="badge badge-${escapeHtml(machine.status)}">${escapeHtml(machine.statusText)}</span></td>
                 <td>
-                    <div class="machine-name">${escapeHtml(textOr(machine.machineName))}</div>
+                    <button class="machine-name machine-link" type="button" data-machine-id="${escapeHtml(machine.machineId)}" title="Makine detayını aç">${escapeHtml(textOr(machine.machineName))}</button>
                     <div class="cell-sub">${escapeHtml(textOr(machine.domainOrWorkgroup, 'Workgroup'))} · ${escapeHtml(textOr(machine.operatingSystem))}${configWarning}</div>
                 </td>
                 <td>
@@ -599,6 +668,32 @@ function renderMachineTable() {
     }).join('');
 }
 
+const conversionLabels = {
+    fullyencrypted: 'Tamamen şifreli',
+    fullydecrypted: 'Şifresiz',
+    encryptioninprogress: 'Şifreleniyor',
+    decryptioninprogress: 'Şifre çözülüyor',
+    encryptionpaused: 'Şifreleme duraklatıldı',
+    decryptionpaused: 'Şifre çözme duraklatıldı'
+};
+
+function bitLockerProtectionLabel(volume) {
+    const parts = [];
+    if (volume.protectionOn === true) {
+        parts.push('Açık');
+    } else if (volume.protectionOn === false) {
+        parts.push('Askıda / kapalı');
+    }
+
+    const conversion = conversionLabels[String(volume.conversionStatus || '').toLowerCase()];
+    if (conversion && conversion !== 'Tamamen şifreli') {
+        parts.push(conversion);
+    }
+
+    // Eski ajanlar koruma bilgisini göndermez.
+    return parts.length > 0 ? parts.join(' · ') : '-';
+}
+
 function riskReasonLabel(reason) {
     const text = String(reason ?? '');
     if (/bitlocker|xts-aes/i.test(text)) {
@@ -618,14 +713,26 @@ function renderPagination() {
     const total = dashboard.filteredCount;
     const start = total === 0 ? 0 : (state.filters.page - 1) * state.filters.pageSize + 1;
     const end = Math.min(state.filters.page * state.filters.pageSize, total);
+    const totalPages = Math.max(1, Math.ceil(total / state.filters.pageSize));
     byId('pagination-info').textContent = total === 0
         ? 'Gösterilecek makine yok'
-        : `${start}-${end} / ${total} makine`;
-    byId('filtered-count').textContent = `${total} makine`;
+        : `${formatCount(start)}-${formatCount(end)} / ${formatCount(total)} makine · Sayfa ${formatCount(state.filters.page)} / ${formatCount(totalPages)}`;
+    byId('filtered-count').textContent = `${formatCount(total)} makine`;
 
-    const totalPages = Math.max(1, Math.ceil(total / state.filters.pageSize));
+    byId('page-first').disabled = state.filters.page <= 1;
     byId('page-prev').disabled = state.filters.page <= 1;
     byId('page-next').disabled = state.filters.page >= totalPages;
+    byId('page-last').disabled = state.filters.page >= totalPages;
+    byId('page-size').value = String(state.filters.pageSize);
+}
+
+function formatCount(value) {
+    const numeric = Number(value);
+    return Number.isFinite(numeric) ? numeric.toLocaleString('tr-TR') : '0';
+}
+
+function totalDashboardPages() {
+    return Math.max(1, Math.ceil((state.dashboard?.filteredCount || 0) / state.filters.pageSize));
 }
 
 function changeStatusFilter(status) {
@@ -721,10 +828,12 @@ async function deleteMachine(machineId, machineName) {
 async function openMachineDetail(machineId) {
     try {
         const detail = await api(`/api/admin/machines/${encodeURIComponent(machineId)}`);
-        openModal(renderMachineDetail(detail), true);
+        openModal(renderMachineDetail(detail), true, { initialFocus: '.modal-close' });
         bindServiceSearch();
     } catch (error) {
-        toast(`Makine ayrıntısı alınamadı: ${describeError(error)}`, 'error');
+        if (!error.handled) {
+            toast(`Makine ayrıntısı alınamadı: ${describeError(error)}`, 'error');
+        }
     }
 }
 
@@ -756,11 +865,12 @@ function renderMachineDetail(detail) {
         ? (bitLockerVolumes.length === 0
             ? '<p class="muted small">BitLocker bilgisi okunamadı.</p>'
             : `<table class="compact-table">
-                <thead><tr><th>Sürücü</th><th>Yöntem</th><th>Durum</th></tr></thead>
+                <thead><tr><th>Sürücü</th><th>Yöntem</th><th>Koruma</th><th>Durum</th></tr></thead>
                 <tbody>${bitLockerVolumes.map(volume => `
                     <tr>
                         <td>${escapeHtml(volume.driveLetter)}</td>
                         <td>${escapeHtml(volume.encryptionMethod)}</td>
+                        <td>${escapeHtml(bitLockerProtectionLabel(volume))}</td>
                         <td class="${volume.isHealthy ? 'text-ok' : 'text-bad'}">${volume.isHealthy ? 'Uygun' : 'Riskli'}</td>
                     </tr>`).join('')}</tbody>
             </table>`)
@@ -822,6 +932,7 @@ function renderMachineDetail(detail) {
                         <span>Son görülme: ${escapeHtml(timeAgo(summary.lastSeenUtc))}</span>
                         <span>Ajan: ${escapeHtml(textOr(summary.agentVersion))}</span>
                         <span class="${summary.isConfigCurrent ? 'text-ok' : 'text-warn'}">${summary.isConfigCurrent ? 'Yapılandırma güncel' : 'Eski yapılandırma'}</span>
+                        ${summary.usesPreviousApiKey ? '<span class="text-warn" title="Ajan ayarındaki API anahtarı yenilenmeden önceki anahtar; agent-settings.json güncellenmeli.">Eski ajan anahtarı</span>' : ''}
                     </div>
                 </div>
                 <div class="detail-meta">
@@ -1016,9 +1127,21 @@ function openProductForm(product) {
             </form>
         </div>`;
 
-    openModal(markup);
+    openModal(markup, false, { initialFocus: '#product-name' });
     byId('product-form').addEventListener('submit', event => saveProduct(event, product?.id));
-    window.setTimeout(() => byId('product-name')?.focus(), 30);
+
+    const initialSnapshot = productFormSnapshot();
+    setModalDirtyCheck(() => productFormSnapshot() !== initialSnapshot);
+}
+
+function productFormSnapshot() {
+    return JSON.stringify([
+        byId('product-name')?.value,
+        byId('product-services')?.value,
+        byId('product-match')?.value,
+        byId('product-sort')?.value,
+        byId('product-enabled')?.checked
+    ]);
 }
 
 async function saveProduct(event, productId) {
@@ -1069,7 +1192,9 @@ async function saveProduct(event, productId) {
         closeModal();
         await Promise.all([loadProducts(), loadDashboard({ silent: true }), refreshSession()]);
     } catch (error) {
-        showProductFormError(describeError(error));
+        if (!error.handled && byId('product-form-error')) {
+            showProductFormError(describeError(error));
+        }
     } finally {
         setButtonBusy(saveButton, false);
     }
@@ -1129,8 +1254,65 @@ async function loadSettings() {
 function updateAgentKeyState() {
     const configured = state.settings?.agentApiKeyConfigured;
     const badge = byId('agent-key-state');
-    badge.textContent = configured ? 'Tanımlı' : 'Tanımsız';
-    badge.className = `badge ${configured ? 'badge-success-soft' : 'badge-risky'}`;
+    const previousExpiry = state.settings?.previousAgentApiKeyExpiresUtc;
+    const outdatedMachines = Number(state.settings?.machinesUsingPreviousApiKey || 0);
+
+    if (configured && previousExpiry) {
+        badge.textContent = 'Geçiş süresi';
+        badge.className = 'badge badge-warning-soft';
+    } else {
+        badge.textContent = configured ? 'Tanımlı' : 'Tanımsız';
+        badge.className = `badge ${configured ? 'badge-success-soft' : 'badge-risky'}`;
+    }
+
+    const panel = byId('previous-key-panel');
+    const text = byId('previous-key-text');
+    if (previousExpiry) {
+        const machinesText = outdatedMachines > 0
+            ? `${formatCount(outdatedMachines)} makine hâlâ eski anahtarla raporluyor; makine listesinde "eski anahtar" olarak işaretlidir.`
+            : 'Eski anahtarla raporlayan makine kalmadı; eski anahtarı iptal edebilirsiniz.';
+        text.textContent = `Önceki anahtar ${formatDate(previousExpiry)} tarihine kadar (${timeAgo(previousExpiry)}) geçerli. ${machinesText}`;
+        panel.classList.remove('hidden');
+    } else if (outdatedMachines > 0) {
+        text.textContent =
+            `${formatCount(outdatedMachines)} makine en son geçersiz olmuş eski anahtarla görüldü. ` +
+            'Bu makinelerin ayarı yeni anahtarla güncellenene kadar rapor alınamaz.';
+        byId('revoke-previous-key-button').classList.add('hidden');
+        panel.classList.remove('hidden');
+        return;
+    } else {
+        panel.classList.add('hidden');
+    }
+
+    byId('revoke-previous-key-button').classList.remove('hidden');
+}
+
+async function revokePreviousAgentKey() {
+    const confirmed = window.confirm(
+        'Önceki ajan API anahtarı şimdi iptal edilsin mi?\n\n' +
+        'Hâlâ eski anahtarı kullanan ajanlar yeni anahtarla güncellenene kadar rapor gönderemez.');
+    if (!confirmed) {
+        return;
+    }
+
+    const button = byId('revoke-previous-key-button');
+    setButtonBusy(button, true, 'İptal ediliyor...');
+
+    try {
+        await api('/api/admin/agent-key/previous', { method: 'DELETE' });
+        toast('Önceki ajan API anahtarı iptal edildi.', 'success');
+
+        // Yalnızca anahtar durumu yenilenir; loadSettings aynı sayfadaki
+        // kaydedilmemiş AD ve raporlama formlarını sıfırlardı.
+        state.settings = await api('/api/admin/settings');
+        updateAgentKeyState();
+    } catch (error) {
+        if (!error.handled) {
+            toast(`Önceki anahtar iptal edilemedi: ${describeError(error)}`, 'error');
+        }
+    } finally {
+        setButtonBusy(button, false);
+    }
 }
 
 function renderAdSettings(ad) {
@@ -1230,18 +1412,70 @@ function collectAdSettings() {
     };
 }
 
+// Oturumu AD yapılandırmasına bağlayan alanlar (sunucudaki parmak izi).
+// Bunlardan biri değişirse AD ile açılmış oturumlar kapanır.
+function adConnectionChanged(draft, current) {
+    const status = current || {};
+    const currentEncryption = status.useSsl ? 'ldaps' : status.useStartTls ? 'starttls' : 'insecure';
+    const draftEncryption = draft.useSsl ? 'ldaps' : draft.useStartTls ? 'starttls' : 'insecure';
+    const same = (a, b) => String(a ?? '').trim().toLowerCase() === String(b ?? '').trim().toLowerCase();
+
+    return draft.enabled !== Boolean(status.enabled) ||
+        !same(draft.host, status.host) ||
+        Number(draft.port || 0) !== Number(status.configuredPort || 0) ||
+        draftEncryption !== currentEncryption ||
+        !same(draft.baseDn, status.baseDn) ||
+        !same(draft.bindDn, status.bindDn) ||
+        !same(draft.adminGroup, status.adminGroup) ||
+        draft.bindPassword.length > 0;
+}
+
 async function saveAdSettings(event) {
     event.preventDefault();
 
     const button = byId('ad-save-button');
     const resultElement = byId('ad-test-result');
     resultElement.classList.add('hidden');
+
+    const draft = collectAdSettings();
+    const isAdSession = state.session?.authenticationMethod === 'ad';
+    const disablesLocalLogin = draft.enabled && !draft.allowLocalFallback;
+
+    // Eskiden kaydetme, çalışan oturumu açıklama yapmadan kapatabiliyordu:
+    // AD ile girilmişken bağlantı ayarı değiştirmek veya yerel oturumdayken
+    // yerel yedek girişi kapatmak. AD de erişilemiyorsa kimse giremiyordu.
+    const losesSession = isAdSession
+        ? adConnectionChanged(draft, state.settings?.ad)
+        : disablesLocalLogin;
+
+    if (losesSession && !window.confirm(
+        'Bu değişiklik mevcut oturumunuzu kapatır; kaydettikten sonra yeniden giriş yapmanız gerekir.\n\n' +
+        (disablesLocalLogin
+            ? 'Yerel yedek giriş kapatılıyor: Active Directory erişilemezse konsola hiç kimse giremez. '
+            : '') +
+        'Devam edilsin mi?')) {
+        return;
+    }
+
     setButtonBusy(button, true, 'Kaydediliyor...');
 
     try {
+        if (disablesLocalLogin) {
+            // Yedek giriş kapatılmadan önce AD bağlantısı doğrulanır; aksi halde
+            // hatalı bir ayar herkesi konsolun dışında bırakabilir.
+            const test = await api('/api/admin/ad/test', { method: 'POST', body: draft });
+            if (!test.success) {
+                resultElement.textContent =
+                    `Ayarlar kaydedilmedi; bağlantı doğrulanmadan yerel yedek giriş kapatılamaz. ${test.message || ''}`.trim();
+                resultElement.classList.remove('hidden', 'is-success');
+                resultElement.classList.add('is-error');
+                return;
+            }
+        }
+
         const status = await api('/api/admin/ad', {
             method: 'PUT',
-            body: collectAdSettings()
+            body: draft
         });
 
         if (state.settings) {
@@ -1251,13 +1485,21 @@ async function saveAdSettings(event) {
         renderAdSettings(status);
         byId('ad-bindpassword').value = '';
         await refreshSession();
+
+        if (!state.session?.authenticated) {
+            toast('Active Directory ayarları kaydedildi. Ayar değişikliği oturumunuzu kapattı; lütfen yeniden giriş yapın.', 'info');
+            return;
+        }
+
         toast(
             status.enabled
                 ? 'Active Directory ayarları kaydedildi. Yeni ayarlar bir sonraki girişten itibaren geçerli.'
                 : 'Active Directory entegrasyonu kapatıldı; yerel yönetici girişi kullanılıyor.',
             'success');
     } catch (error) {
-        toast(`AD ayarları kaydedilemedi: ${describeError(error)}`, 'error');
+        if (!error.handled) {
+            toast(`AD ayarları kaydedilemedi: ${describeError(error)}`, 'error');
+        }
     } finally {
         setButtonBusy(button, false);
     }
@@ -1295,6 +1537,21 @@ function renderAgentConfigExample() {
     };
 
     byId('agent-config-example').textContent = JSON.stringify(example, null, 2);
+
+    // Konsol yerel adresten (varsayılan http://127.0.0.1:5081) açıldığında
+    // örnekteki adres diğer makinelerdeki ajanlar için geçersizdir; ajan
+    // uzak sunucuya yalnızca HTTPS ile bağlanır.
+    const warning = byId('agent-config-warning');
+    const host = window.location.hostname.replace(/^\[|\]$/g, '');
+    const isLoopback = host === 'localhost' || host === '::1' || /^127\./.test(host);
+    if (isLoopback || window.location.protocol !== 'https:') {
+        warning.textContent = isLoopback
+            ? 'Bu adres yalnızca sunucunun kurulu olduğu makinedeki ajan için geçerlidir. Diğer makinelerde serverUrl olarak sunucunun HTTPS adresini yazın (ör. https://bertool.sirket.local).'
+            : 'Uzak ajanlar sunucuya yalnızca HTTPS ile bağlanır. serverUrl değerini https:// ile başlayan adresle değiştirin.';
+        warning.classList.remove('hidden');
+    } else {
+        warning.classList.add('hidden');
+    }
 }
 
 async function saveSettings(event) {
@@ -1356,9 +1613,13 @@ async function changePassword(event) {
 }
 
 async function rotateAgentKey() {
+    const keepPrevious = byId('rotate-keep-previous').checked;
     const confirmed = window.confirm(
         'Yeni bir ajan API anahtarı üretilsin mi?\n\n' +
-        'Mevcut anahtar hemen geçersiz olur ve tüm ajanların ayarları güncellenene kadar raporlama durur.');
+        (keepPrevious
+            ? 'Mevcut anahtar 7 gün daha geçerli kalır. Bu sürede tüm ajanların ayarını yeni anahtarla güncelleyin; ' +
+              'süre dolunca eski anahtarla gelen raporlar reddedilir.'
+            : 'Mevcut anahtar HEMEN geçersiz olur ve tüm ajanların ayarları güncellenene kadar raporlama durur.'));
     if (!confirmed) {
         return;
     }
@@ -1366,17 +1627,37 @@ async function rotateAgentKey() {
     const button = byId('rotate-key-button');
     setButtonBusy(button, true, 'Üretiliyor...');
 
+    let result;
     try {
-        const result = await api('/api/admin/agent-key/rotate', { method: 'POST' });
-        byId('rotated-key-panel').classList.remove('hidden');
-        byId('rotated-key-value').value = result.apiKey;
-        state.settings.agentApiKeyConfigured = true;
-        updateAgentKeyState();
-        toast('Yeni ajan API anahtarı üretildi. Anahtarı güvenli bir yere kaydedin.', 'success');
+        result = await api('/api/admin/agent-key/rotate', {
+            method: 'POST',
+            body: { keepPreviousKey: keepPrevious, graceHours: 168 }
+        });
     } catch (error) {
-        toast(`Anahtar üretilemedi: ${describeError(error)}`, 'error');
-    } finally {
+        if (!error.handled) {
+            toast(`Anahtar üretilemedi: ${describeError(error)}`, 'error');
+        }
         setButtonBusy(button, false);
+        return;
+    }
+
+    // Anahtar sunucuda değişti; buradan sonraki bir arayüz hatası "üretilemedi"
+    // olarak bildirilmemeli (ayarlar yüklenemediyse state.settings boştur).
+    byId('rotated-key-panel').classList.remove('hidden');
+    byId('rotated-key-value').value = result.apiKey;
+    byId('rotated-key-warning').textContent = result.previousKeyExpiresUtc
+        ? `Bu anahtar bir daha gösterilmeyecek. Eski anahtar ${formatDate(result.previousKeyExpiresUtc)} tarihine kadar geçerli; ` +
+          'bu tarihe kadar tüm ajanların agent-settings.json dosyasını güncelleyin.'
+        : 'Bu anahtar bir daha gösterilmeyecek. Eski anahtar geçersiz oldu; tüm ajanların agent-settings.json dosyasını hemen güncelleyin.';
+    toast('Yeni ajan API anahtarı üretildi. Anahtarı güvenli bir yere kaydedin.', 'success');
+    setButtonBusy(button, false);
+
+    try {
+        const settings = await api('/api/admin/settings');
+        state.settings = settings;
+        updateAgentKeyState();
+    } catch {
+        // Anahtar paneli zaten gösterildi; durum bir sonraki yüklemede güncellenir.
     }
 }
 
@@ -1385,31 +1666,131 @@ async function copyText(value, successMessage) {
         await navigator.clipboard.writeText(value);
         toast(successMessage, 'success');
     } catch {
+        // Pano API'si yalnızca HTTPS veya localhost'ta çalışır; LAN üzerinden
+        // HTTP ile açılan konsolda eski yönteme dönülür. Sonucu kontrol edilir;
+        // eskiden kopyalama başarısız olsa da "kopyalandı" deniyordu.
         const textarea = document.createElement('textarea');
         textarea.value = value;
         textarea.className = 'copy-fallback';
         document.body.appendChild(textarea);
         textarea.select();
-        document.execCommand('copy');
+        let copied = false;
+        try {
+            copied = document.execCommand('copy');
+        } catch {
+            copied = false;
+        }
         textarea.remove();
-        toast(successMessage, 'success');
+
+        if (copied) {
+            toast(successMessage, 'success');
+        } else {
+            toast('Otomatik kopyalama desteklenmiyor. Metni seçip Ctrl+C ile kopyalayın.', 'error');
+        }
     }
 }
 
-function openModal(markup, wide = false) {
+const modalState = {
+    returnFocus: null,
+    isDirty: null,
+    pointerDownOnBackdrop: false
+};
+
+const focusableSelector = [
+    'a[href]',
+    'button:not([disabled])',
+    'input:not([disabled]):not([type="hidden"])',
+    'select:not([disabled])',
+    'textarea:not([disabled])',
+    '[tabindex]:not([tabindex="-1"])'
+].join(',');
+
+/**
+ * Pencere açılınca odak pencereye taşınır, arka plan etkileşime kapatılır
+ * (inert) ve Tab pencere içinde döner; kapanınca odak açan düğmeye geri
+ * döner. Eskiden odak arka plandaki "Detay" düğmesinde kalıyor, Tab
+ * görünmeyen satırlara gidiyordu.
+ */
+function openModal(markup, wide = false, options = {}) {
     const root = byId('modal-root');
+    if (root.children.length === 0) {
+        modalState.returnFocus = document.activeElement;
+    }
+
     root.innerHTML = `
         <div class="modal-backdrop" data-modal-backdrop>
-            <div class="modal${wide ? ' modal-lg' : ''}" role="dialog" aria-modal="true">
+            <div class="modal${wide ? ' modal-lg' : ''}" role="dialog" aria-modal="true" tabindex="-1">
                 ${markup}
             </div>
         </div>`;
+
+    const modal = root.querySelector('.modal');
+    const heading = modal.querySelector('h2');
+    if (heading) {
+        heading.id = heading.id || 'modal-title';
+        modal.setAttribute('aria-labelledby', heading.id);
+    }
+
+    modalState.isDirty = typeof options.isDirty === 'function' ? options.isDirty : null;
+    byId('app-view').inert = true;
     document.body.classList.add('modal-open');
+
+    const initial = options.initialFocus ? modal.querySelector(options.initialFocus) : null;
+    (initial || modal).focus();
+}
+
+function setModalDirtyCheck(check) {
+    modalState.isDirty = typeof check === 'function' ? check : null;
+}
+
+/** Kullanıcının başlattığı kapatma: kaydedilmemiş form varsa onay ister. */
+function requestCloseModal() {
+    if (modalState.isDirty && modalState.isDirty() &&
+        !window.confirm('Kaydedilmemiş değişiklikler kaybolacak. Pencere kapatılsın mı?')) {
+        return;
+    }
+
+    closeModal();
 }
 
 function closeModal() {
-    byId('modal-root').innerHTML = '';
+    const root = byId('modal-root');
+    const wasOpen = root.children.length > 0;
+    root.innerHTML = '';
     document.body.classList.remove('modal-open');
+    byId('app-view').inert = false;
+    modalState.isDirty = null;
+
+    const target = modalState.returnFocus;
+    modalState.returnFocus = null;
+    if (wasOpen && target && document.contains(target) && typeof target.focus === 'function') {
+        target.focus();
+    }
+}
+
+function trapModalFocus(event) {
+    const modal = byId('modal-root').querySelector('.modal');
+    if (!modal) {
+        return;
+    }
+
+    const focusable = Array.from(modal.querySelectorAll(focusableSelector))
+        .filter(element => element.offsetParent !== null || element === document.activeElement);
+    if (focusable.length === 0) {
+        event.preventDefault();
+        modal.focus();
+        return;
+    }
+
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    if (event.shiftKey && (document.activeElement === first || document.activeElement === modal)) {
+        event.preventDefault();
+        last.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+    }
 }
 
 function configureAutoRefresh() {
@@ -1454,10 +1835,16 @@ function bindEvents() {
 
     byId('search-input').addEventListener('input', event => {
         window.clearTimeout(state.searchTimer);
+        const value = event.target.value;
         state.searchTimer = window.setTimeout(() => {
-            state.filters.search = event.target.value.trim();
-            state.filters.page = 1;
-            loadDashboard();
+            // Kırpma yalnızca sorguda yapılır (dashboardQuery); yalnızca baştaki
+            // veya sondaki boşluk değiştiyse aynı sorgu tekrar gönderilmez.
+            const changed = value.trim() !== state.filters.search.trim();
+            state.filters.search = value;
+            if (changed) {
+                state.filters.page = 1;
+                loadDashboard();
+            }
         }, 320);
     });
 
@@ -1490,9 +1877,36 @@ function bindEvents() {
     });
 
     byId('page-next').addEventListener('click', () => {
-        const totalPages = Math.max(1, Math.ceil((state.dashboard?.filteredCount || 0) / state.filters.pageSize));
-        if (state.filters.page < totalPages) {
+        if (state.filters.page < totalDashboardPages()) {
             state.filters.page++;
+            loadDashboard();
+        }
+    });
+
+    byId('page-first').addEventListener('click', () => {
+        if (state.filters.page > 1) {
+            state.filters.page = 1;
+            loadDashboard();
+        }
+    });
+
+    byId('page-last').addEventListener('click', () => {
+        const last = totalDashboardPages();
+        if (state.filters.page < last) {
+            state.filters.page = last;
+            loadDashboard();
+        }
+    });
+
+    byId('page-size').value = String(state.filters.pageSize);
+    byId('page-size').addEventListener('change', event => {
+        const size = Number(event.target.value);
+        if ([25, 50, 100].includes(size) && size !== state.filters.pageSize) {
+            // Görünen ilk makine yeni sayfa boyutunda da görünür kalsın.
+            const firstIndex = (state.filters.page - 1) * state.filters.pageSize;
+            state.filters.pageSize = size;
+            state.filters.page = Math.floor(firstIndex / size) + 1;
+            storageSet('bertool.pageSize', String(size));
             loadDashboard();
         }
     });
@@ -1526,6 +1940,7 @@ function bindEvents() {
     byId('ad-form').addEventListener('submit', saveAdSettings);
     byId('password-form').addEventListener('submit', changePassword);
     byId('rotate-key-button').addEventListener('click', rotateAgentKey);
+    byId('revoke-previous-key-button').addEventListener('click', revokePreviousAgentKey);
     byId('ad-test-button').addEventListener('click', testAdConnection);
 
     byId('copy-key-button').addEventListener('click', () => {
@@ -1542,7 +1957,7 @@ function bindEvents() {
     byId('auto-refresh').checked = state.autoRefresh;
     byId('auto-refresh').addEventListener('change', event => {
         state.autoRefresh = event.target.checked;
-        localStorage.setItem('bertool.autoRefresh', String(state.autoRefresh));
+        storageSet('bertool.autoRefresh', String(state.autoRefresh));
         configureAutoRefresh();
     });
 
@@ -1553,19 +1968,50 @@ function bindEvents() {
             return;
         }
 
-        if (event.target.hasAttribute('data-modal-backdrop') || event.target.closest('[data-close-modal]')) {
-            closeModal();
+        if (event.target.closest('[data-close-modal]')) {
+            requestCloseModal();
+            return;
         }
+
+        // Yalnızca fare hem basıldığında hem bırakıldığında arka planın
+        // üzerindeyse kapat. Metin alanında seçim yapıp fareyi pencere dışında
+        // bırakmak formu kapatıp yazılanları siliyordu.
+        if (event.target.hasAttribute('data-modal-backdrop') && modalState.pointerDownOnBackdrop) {
+            requestCloseModal();
+        }
+
+        modalState.pointerDownOnBackdrop = false;
+    });
+
+    byId('modal-root').addEventListener('mousedown', event => {
+        modalState.pointerDownOnBackdrop = event.target.hasAttribute('data-modal-backdrop');
     });
 
     document.addEventListener('keydown', event => {
-        if (event.key === 'Escape' && byId('modal-root').children.length > 0) {
-            closeModal();
+        if (byId('modal-root').children.length === 0) {
+            return;
+        }
+
+        if (event.key === 'Tab') {
+            trapModalFocus(event);
+            return;
+        }
+
+        if (event.key === 'Escape') {
+            // Dolu bir arama kutusunda Esc önce aramayı temizler (tarayıcı
+            // varsayılanı); bütün pencereyi kapatmaz.
+            if (event.target.matches?.('input[type="search"]') && event.target.value) {
+                return;
+            }
+
+            event.preventDefault();
+            requestCloseModal();
         }
     });
 
     document.addEventListener('visibilitychange', () => {
         if (document.visibilityState === 'visible' &&
+            state.autoRefresh &&
             state.currentView === 'dashboard' &&
             state.session?.authenticated &&
             !state.loadingDashboard &&

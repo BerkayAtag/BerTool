@@ -10,6 +10,17 @@ internal sealed class StoredServerData
     public string AdminUsername { get; set; } = "admin";
     public PasswordHashRecord AdminPassword { get; set; } = new();
     public string AgentApiKeyHash { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Anahtar yenilendikten sonra geçiş süresi boyunca kabul edilen önceki
+    /// anahtarın özeti. Süre dolunca veya yönetici iptal edince boşaltılır.
+    /// </summary>
+    public string PreviousAgentApiKeyHash { get; set; } = string.Empty;
+    public DateTimeOffset? PreviousAgentApiKeyExpiresUtc { get; set; }
+
+    /// <summary>Anahtarın son yenilendiği an. Bundan önce görülen makineler eski anahtarı kullanıyordur.</summary>
+    public DateTimeOffset? AgentApiKeyRotatedUtc { get; set; }
+
     public int ReportIntervalSeconds { get; set; } = DefaultProductCatalog.DefaultReportIntervalSeconds;
     public int OfflineThresholdMinutes { get; set; } = DefaultProductCatalog.DefaultOfflineThresholdMinutes;
     public int HistoryLimit { get; set; } = DefaultProductCatalog.DefaultHistoryLimit;
@@ -57,6 +68,9 @@ internal sealed class StoredMachine
     public DateTimeOffset LastSeenUtc { get; set; }
     public List<MachineHistoryEntryDto> History { get; set; } = new();
 
+    /// <summary>Son rapor, geçiş süresindeki önceki ajan anahtarıyla mı geldi.</summary>
+    public bool UsesPreviousApiKey { get; set; }
+
     /// <summary>
     /// Son raporun güncel ürün tanımlarıyla hesaplanmış sonucu. Rapor veya ürün
     /// tanımları değişmedikçe pano her istekte yeniden hesaplamaz.
@@ -70,6 +84,14 @@ internal sealed class StoredMachine
 /// Kaynak nesnelerin kimliği saklanır; ikisinden biri değiştiğinde sonuç geçersizdir.
 /// Listeler paylaşılır ve oluşturulduktan sonra değiştirilmez.
 /// </summary>
+/// <summary>Ajanın gönderdiği API anahtarının hangi kayıtla eşleştiği.</summary>
+internal enum AgentKeyMatch
+{
+    None,
+    Current,
+    Previous
+}
+
 internal sealed record MachineEvaluation(
     AgentReportDto Report,
     List<ProductDefinitionDto> Products,

@@ -66,9 +66,18 @@ internal sealed class HostValidationMiddleware
 {
     private readonly RequestDelegate _next;
     private readonly ILogger<HostValidationMiddleware> _logger;
+    private static readonly TimeSpan LocalAddressRefreshInterval = TimeSpan.FromSeconds(30);
+
     private readonly HashSet<string> _allowedHosts = new(StringComparer.OrdinalIgnoreCase);
     private readonly List<string> _allowedSuffixes = new();
     private readonly bool _allowAny;
+    private readonly object _refreshSync = new();
+
+    // Yerel IP adresleri ayrı tutulur ve gerektiğinde yenilenir. Eskiden yalnızca
+    // başlangıçta okunuyordu; DHCP ile IP adresi değişen sunucuya yeni adresle
+    // erişen ajanlar ve konsol, sunucu yeniden başlatılana kadar 400 alıyordu.
+    private volatile HashSet<string> _localAddresses = new(StringComparer.OrdinalIgnoreCase);
+    private long _localAddressesRefreshedTicks;
 
     public HostValidationMiddleware(
         RequestDelegate next,
@@ -95,11 +104,7 @@ internal sealed class HostValidationMiddleware
         AddAllowedHost("::1");
         AddAllowedHost(Environment.MachineName);
         AddAllowedHost(Dns.GetHostName());
-
-        foreach (var address in GetLocalAddresses())
-        {
-            AddAllowedHost(address);
-        }
+        RefreshLocalAddresses();
 
         foreach (var value in configured)
         {
@@ -139,8 +144,15 @@ internal sealed class HostValidationMiddleware
             return;
         }
 
-        if (_allowedHosts.Contains(host) ||
-            _allowedSuffixes.Any(suffix => host.EndsWith(suffix, StringComparison.OrdinalIgnoreCase)))
+        if (IsAllowed(host))
+        {
+            await _next(context);
+            return;
+        }
+
+        // Bilinmeyen adres yeni alınmış bir yerel IP olabilir; sınırlı sıklıkla
+        // arayüz listesini yeniden oku.
+        if (IPAddress.TryParse(host, out _) && TryRefreshLocalAddresses() && _localAddresses.Contains(host))
         {
             await _next(context);
             return;
@@ -148,6 +160,49 @@ internal sealed class HostValidationMiddleware
 
         _logger.LogDebug("Geçersiz Host başlığı reddedildi: {Host}", host);
         await RejectAsync(context);
+    }
+
+    private bool IsAllowed(string host)
+    {
+        return _allowedHosts.Contains(host) ||
+            _localAddresses.Contains(host) ||
+            _allowedSuffixes.Any(suffix => host.EndsWith(suffix, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private bool TryRefreshLocalAddresses()
+    {
+        var now = DateTime.UtcNow.Ticks;
+        if (now - Interlocked.Read(ref _localAddressesRefreshedTicks) < LocalAddressRefreshInterval.Ticks)
+        {
+            return false;
+        }
+
+        lock (_refreshSync)
+        {
+            if (now - Interlocked.Read(ref _localAddressesRefreshedTicks) < LocalAddressRefreshInterval.Ticks)
+            {
+                return false;
+            }
+
+            RefreshLocalAddresses();
+            return true;
+        }
+    }
+
+    private void RefreshLocalAddresses()
+    {
+        var addresses = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var address in GetLocalAddresses())
+        {
+            var normalized = NormalizeHost(address);
+            if (normalized.Length > 0)
+            {
+                addresses.Add(normalized);
+            }
+        }
+
+        _localAddresses = addresses;
+        Interlocked.Exchange(ref _localAddressesRefreshedTicks, DateTime.UtcNow.Ticks);
     }
 
     private void AddAllowedHost(string? value)

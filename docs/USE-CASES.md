@@ -29,7 +29,7 @@ python tests/e2e/scenarios.py --agent live `
 | UC-07 | Ürünsüz yapılandırma | Tüm ürünler silinir, sonra yeni ürün eklenir | Ajan ürün olmasa da servis görüntüsünü raporlamayı sürdürür; yeni ürün ajanı beklemeden sunucuda anında doğru değerlendirilir; varsayılan ürünler geri yüklenir |
 | UC-08 | Rapor aralığı | Aralık 30 sn yapılır | Rapor aralığından kısa çevrimdışı eşiği reddedilir; ajan ~30 sn aralıkla raporlar (45 sn'lik yenilemeye bağlı kalmaz) |
 | UC-09 | Çevrimdışı makine | Bir makine rapor göndermeyi bırakır | Eşikten sonra "Çevrimdışı" sekmesinde görünür; raporlayan ajan çevrimiçi kalır; yeni raporla geri döner |
-| UC-10 | Ajan anahtarı yenileme | Konsoldan yeni anahtar üretilir, ajan ayarı güncellenir | Eski anahtar 401; yeni anahtarla ajan yeniden raporlar |
+| UC-10 | Ajan anahtarı yenileme | Konsoldan geçiş süreli yeni anahtar üretilir, eski anahtar iptal edilir, ajan ayarı güncellenir | Geçiş süresinde eski ve yeni anahtar kabul edilir, bitiş zamanı ayarlarda görünür; iptalden sonra eski anahtar 401; gövdesiz (eski istemci) yenileme eski anahtarı hemen geçersiz kılar; yeni anahtarla ajan yeniden raporlar |
 | UC-11 | Arama ve dışa aktarma | Türkçe adlı makineler, ürün filtresi, CSV | "istanbul"/"İSTANBUL"/"ızmir"/"sube" aramaları doğru makineyi bulur; BitLocker riski listede görünür; CSV UTF-8 BOM'lu, formül enjeksiyonu etkisiz |
 | UC-12 | Makine silme | Konsoldan makine kaydı silinir | Kayıt ve geçmiş silinir; geçersiz kimlik reddedilir; ajan yeniden raporlarsa makine geri gelir |
 | UC-13 | Şifre değiştirme | İki oturum açıkken şifre değiştirilir | Hatalı/kısa/çok uzun şifre reddedilir; diğer oturum kapanır; yeni şifreyle giriş yapılır |
@@ -42,6 +42,18 @@ Kurulum ve kaldırma senaryoları (yayıncı **Berkay Atağ**, `appwiz.cpl` simg
 Başlat menüsü kısayolu, BitLocker görevi, kaldırmada ayarların korunması)
 [`tests/Smoke.Installers.ps1`](../tests/Smoke.Installers.ps1) ile aynı CI
 çalışmasında doğrulanır.
+
+## Ek doğrulamalar (1.6.0)
+
+- **Birim testleri:** 108 test (15 yeni regresyon testi): servis eşleştirme
+  önceliği, BitLocker koruma/dönüştürme kuralları, anahtar geçiş süresi ve
+  iptali, bozuk `server.json`'ın yedekten kurtarılması, saat geri alındığında
+  ajan raporlaması.
+- **Konsol:** arama kutusu (boşluk ve hızlı yazım), sayfa boyutu ve ilk/son
+  sayfa, makine adından detay açma, pencerede odak yönetimi ve Esc, kaydedilmemiş
+  ürün formunun korunması, yerel yedek giriş kapatılırken zorunlu AD bağlantı
+  testi, anahtar geçiş süresi paneli ve iptal; 1440 px masaüstü ve 375 px mobil
+  genişlikte tarayıcıda denendi.
 
 ## Ek doğrulamalar (1.5.0)
 

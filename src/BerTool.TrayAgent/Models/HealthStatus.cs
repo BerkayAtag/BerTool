@@ -14,13 +14,23 @@ internal sealed class HealthStatus
     public bool IsHealthy { get; init; }
     public DateTime CheckedAt { get; init; } = DateTime.Now;
 
-    public string DeviceStatus => IsHealthy ? "Sağlıklı" : "Riskli";
-    public string TooltipText => IsHealthy ? "Cihaz güvenli görünüyor" : "Güvende değilsiniz";
+    /// <summary>
+    /// Gerçek ölçüm değil, hata/ilk yükleme yer tutucusu. Ekranda gösterilir
+    /// ama sunucuya raporlanmaz: boş servis listesi sunucuda tüm ürünleri
+    /// "Bulunamadı" gösteriyordu.
+    /// </summary>
+    public bool IsFallback { get; init; }
+
+    public string DeviceStatus => IsFallback ? "Bilinmiyor" : IsHealthy ? "Sağlıklı" : "Riskli";
+    public string TooltipText => IsFallback
+        ? "BerTool: durum bilgisi alınamadı"
+        : IsHealthy ? "Cihaz güvenli görünüyor" : "Güvende değilsiniz";
 
     public static HealthStatus CreateFallback(string reason)
     {
         return new HealthStatus
         {
+            IsFallback = true,
             IsHealthy = false,
             RiskReasons = new[] { reason },
             SystemInfo = SystemInfoModel.CreateUnknown(),

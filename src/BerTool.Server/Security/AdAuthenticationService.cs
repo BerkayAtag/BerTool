@@ -665,7 +665,12 @@ internal sealed class AdAuthenticationService
             return null;
         }
 
-        return attribute[0] as byte[];
+        // DirectoryAttribute indeksleyicisi, değer geçerli UTF-8 olarak
+        // çözülebiliyorsa string döndürür. objectSid gibi ikili değerlerde bu
+        // bazı SID'lerde olur; "as byte[]" null verir ve birincil grup
+        // kontrolü sessizce atlanırdı. Değer her zaman ham bayt olarak istenir.
+        var values = attribute.GetValues(typeof(byte[]));
+        return values.Length > 0 ? values[0] as byte[] : null;
     }
 
     private static string SanitizeForLog(string? value)

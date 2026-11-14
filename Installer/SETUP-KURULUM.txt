@@ -1,12 +1,12 @@
-BerTool 1.5.0 - Setup Dosyalari
+BerTool 1.6.0 - Setup Dosyalari
 ================================
 
 Bu klasorde iki kurulum dosyasi bulunur:
 
-1) BerTool.Client.Setup-1.5.0.exe
+1) BerTool.Client.Setup-1.6.0.exe
    Windows istemci / tray ajani kurulumu (Inno Setup, yonetici).
 
-2) BerTool.Server.Setup-1.5.0.exe
+2) BerTool.Server.Setup-1.6.0.exe
    BerTool sunucusu ve yonetim konsolu kurulumu (Inno Setup, kullanici bazli).
 
 Her iki dosya da self-contained'dir; hedef makinede .NET runtime gerekmez.
@@ -17,7 +17,7 @@ ISTEMCI KURULUMU
 Cift tiklayip "Kur" dugmesine basmak yeterlidir (yonetici onayi istenir);
 ajan yerel modda calisir. Sunucuya raporlama icin yonetici olarak cmd acin:
 
-  BerTool.Client.Setup-1.5.0.exe /SERVERURL="https://sunucu-adresi" /APIKEY="AJAN-API-ANAHTARI"
+  BerTool.Client.Setup-1.6.0.exe /SERVERURL="https://sunucu-adresi" /APIKEY="AJAN-API-ANAHTARI"
 
 Sunucu adresi ve API anahtari verilmezse ajan yerel modda calisir.
 Yerel olmayan sunucularda HTTPS zorunludur; http:// yalnizca 127.0.0.1,
@@ -25,10 +25,16 @@ localhost ve [::1] icin kabul edilir.
 
 Hazir ayar dosyasiyla:
 
-  BerTool.Client.Setup-1.5.0.exe /AGENTSETTINGSFILE="C:\Temp\agent-settings.json"
+  BerTool.Client.Setup-1.6.0.exe /AGENTSETTINGSFILE="C:\Temp\agent-settings.json"
 
-Dosyadaki serverUrl icin de ayni HTTPS kurali gecerlidir. Gecersiz adres
-verilirse kurulum ayar dosyasini yazmadan hata verir; mevcut ayar korunur.
+Dosyadaki serverUrl icin de ayni HTTPS kurali gecerlidir. Parametreler
+dosyalar kopyalanmadan once dogrulanir: gecersiz adres, eksik /APIKEY veya
+bozuk ayar dosyasinda kurulum hicbir seyi degistirmeden cikis kodu 7 ile
+durur; mevcut kurulum ve ayar korunur. Sessiz kurulumda pencere acilmaz,
+hata /LOG="C:\Temp\BerToolSetup.log" ile verilen dosyaya yazilir.
+
+SCCM/Intune/BigFix gibi araclar kurulumu SYSTEM olarak calistirir; bu
+durumda ajan hemen baslatilmaz, kullanicilar oturum actiginda baslar.
 
 Sessiz kurulum icin /SILENT veya /VERYSILENT kullanin; /S degil.
 
@@ -79,6 +85,12 @@ yonetici sifresini degistirin, bilgileri guvenli bir yere tasiyin ve
 bootstrap-credentials.txt dosyasini silin. Ajanlara API anahtarini
 /SERVERURL ve /APIKEY parametreleriyle verin.
 
+Ajan API anahtarini yenilemek (Ayarlar > Ajan API Anahtari) raporlamayi
+kesmez: eski anahtar varsayilan olarak 7 gun daha gecerlidir. Bu surede
+istemci kurulumunu yeni /APIKEY ile yeniden calistirin; eski anahtari
+kullanan makineler konsolda "eski anahtar" olarak gorunur. Anahtar
+sizdiysa "7 gun daha gecerli kalsin" secenegini kapatin.
+
 Konsol:
 - Varsayilan tema kirmizi-beyazdir; ust cubuktan karanlik tema
   secilebilir. Secim tarayicida saklanir.
@@ -91,12 +103,12 @@ Konsol:
 
 Kurulum parametreleri (istege bagli):
 
-  BerTool.Server.Setup-1.5.0.exe /PORT=5081 /BIND=127.0.0.1
-  BerTool.Server.Setup-1.5.0.exe /URLS="https://0.0.0.0:5443"
-  BerTool.Server.Setup-1.5.0.exe /DATADIR="C:\BerToolData"
-  BerTool.Server.Setup-1.5.0.exe /FORCECONFIG=1
-  BerTool.Server.Setup-1.5.0.exe /SILENT
-  BerTool.Server.Setup-1.5.0.exe /VERYSILENT /SUPPRESSMSGBOXES
+  BerTool.Server.Setup-1.6.0.exe /PORT=5081 /BIND=127.0.0.1
+  BerTool.Server.Setup-1.6.0.exe /URLS="https://0.0.0.0:5443"
+  BerTool.Server.Setup-1.6.0.exe /DATADIR="C:\BerToolData"
+  BerTool.Server.Setup-1.6.0.exe /FORCECONFIG=1
+  BerTool.Server.Setup-1.6.0.exe /SILENT
+  BerTool.Server.Setup-1.6.0.exe /VERYSILENT /SUPPRESSMSGBOXES
 
   /BIND       Dinlenecek IP. Varsayilan 127.0.0.1 (yalnizca yerel).
   /PORT       Port. Varsayilan 5081.
@@ -117,7 +129,7 @@ Mevcut kurulum uzerine kurulum:
   korunur.
 - Yalnizca uygulama dosyalari guncellenir.
 - Eski portable (ZIP) kurulumdan geciyorsaniz veri dizinini acikca verin:
-    BerTool.Server.Setup-1.5.0.exe /DATADIR="ESKI-VERI-KLASORU" /FORCECONFIG=1
+    BerTool.Server.Setup-1.6.0.exe /DATADIR="ESKI-VERI-KLASORU" /FORCECONFIG=1
 - appsettings.json icinde eski varsayilan http://0.0.0.0:5080 adresi duruyorsa,
   yalnizca yerel erisim icin /FORCECONFIG=1 ile yeniden calistirin. 1.4.0 ile
   gelen varsayilan adres http://127.0.0.1:5080'dir.

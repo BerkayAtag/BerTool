@@ -64,6 +64,19 @@ public sealed class BitLockerVolumeDto
 {
     public string DriveLetter { get; set; } = string.Empty;
     public string EncryptionMethod { get; set; } = "N/A";
+
+    /// <summary>
+    /// BitLocker koruması açık mı. false: koruma askıya alınmış veya kapalı
+    /// (anahtar diskte açık durur). null: okunamadı veya eski ajan.
+    /// </summary>
+    public bool? ProtectionOn { get; set; }
+
+    /// <summary>
+    /// Dönüştürme durumu (FullyEncrypted, EncryptionInProgress,
+    /// DecryptionInProgress, ...). Boş: okunamadı veya eski ajan.
+    /// </summary>
+    public string ConversionStatus { get; set; } = string.Empty;
+
     public bool IsHealthy { get; set; }
 }
 

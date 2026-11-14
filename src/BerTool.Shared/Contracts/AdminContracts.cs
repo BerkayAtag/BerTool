@@ -49,6 +49,13 @@ public sealed class MachineSummaryDto
     public int ConfigVersion { get; set; }
     public bool IsConfigCurrent { get; set; }
     public string AgentVersion { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Makinenin son raporu, yenilenmiş anahtarın geçiş süresi boyunca hâlâ
+    /// geçerli olan önceki ajan API anahtarıyla geldiyse true. Bu makinelerin
+    /// ayarı, eski anahtarın süresi dolmadan güncellenmelidir.
+    /// </summary>
+    public bool UsesPreviousApiKey { get; set; }
 }
 
 public sealed class ProductFilterDto
@@ -101,6 +108,13 @@ public sealed class AdminSettingsDto
     public int HistoryLimit { get; set; } = 50;
     public int ConfigVersion { get; set; }
     public bool AgentApiKeyConfigured { get; set; }
+
+    /// <summary>Önceki ajan anahtarı hâlâ geçerliyse geçerlilik bitişi; değilse null.</summary>
+    public DateTimeOffset? PreviousAgentApiKeyExpiresUtc { get; set; }
+
+    /// <summary>Son raporunu önceki anahtarla gönderen makine sayısı.</summary>
+    public int MachinesUsingPreviousApiKey { get; set; }
+
     public AdStatusDto Ad { get; set; } = new();
     public DateTimeOffset ServerTimeUtc { get; set; }
 }
@@ -170,9 +184,26 @@ public sealed class ChangePasswordRequest
     public string NewPassword { get; set; } = string.Empty;
 }
 
+public sealed class RotateAgentKeyRequest
+{
+    /// <summary>
+    /// true ise önceki anahtar <see cref="GraceHours"/> boyunca geçerli kalır;
+    /// ajanlar bu sürede yeni anahtarla yeniden yapılandırılabilir. Anahtar
+    /// sızdıysa false gönderilir ve eski anahtar hemen geçersiz olur. Gövdesiz
+    /// istekler (eski istemciler) önceki davranışı korur: hemen geçersiz kılma.
+    /// </summary>
+    public bool KeepPreviousKey { get; set; }
+
+    /// <summary>Geçiş süresi (saat). 1 ile 720 (30 gün) arasında; varsayılan 7 gün.</summary>
+    public int GraceHours { get; set; } = 168;
+}
+
 public sealed class RotateAgentKeyResponse
 {
     public string ApiKey { get; set; } = string.Empty;
+
+    /// <summary>Önceki anahtarın geçerliliğinin biteceği an; hemen iptal edildiyse null.</summary>
+    public DateTimeOffset? PreviousKeyExpiresUtc { get; set; }
 }
 
 public sealed class ApiErrorDto

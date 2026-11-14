@@ -6,6 +6,7 @@ namespace BerTool.TrayAgent;
 internal sealed class MainPopupForm : Form
 {
     private readonly Label _overallStatusValueLabel;
+    private readonly Label _riskReasonsLabel;
     private readonly Label _networkQualityValueLabel;
     private readonly ListView _serviceListView;
     private readonly ListView _deviceInfoListView;
@@ -16,6 +17,14 @@ internal sealed class MainPopupForm : Form
     private readonly Label _reportingStatusLabel;
 
     internal bool AllowClose { get; set; }
+
+    /// <summary>
+    /// Pencere kullanıcı dışında bir nedenle kapatılmak istendiğinde (taskkill,
+    /// kurulumun Yeniden Başlatma Yöneticisi) tetiklenir. Uygulama bu durumda
+    /// düzgünce kapanmalıdır; eskiden yalnızca pencere yok ediliyor, uygulama
+    /// çalışmaya devam ediyor ve tray simgesine tıklamak hiçbir şey yapmıyordu.
+    /// </summary>
+    internal event EventHandler? ExitRequested;
 
     public MainPopupForm()
     {
@@ -46,11 +55,11 @@ internal sealed class MainPopupForm : Form
             Dock = DockStyle.Fill,
             Padding = new Padding(12),
             ColumnCount = 1,
-            RowCount = 11,
+            RowCount = 12,
             AutoScroll = true
         };
 
-        for (var rowIndex = 0; rowIndex < 11; rowIndex++)
+        for (var rowIndex = 0; rowIndex < 12; rowIndex++)
         {
             container.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         }
@@ -103,7 +112,21 @@ internal sealed class MainPopupForm : Form
 
         container.Controls.Add(overallStatusPanel, 0, 2);
 
-        container.Controls.Add(CreateSectionTitle("Servis Kontrolleri"), 0, 3);
+        // Cihaz riskliyse nedeni de gösterilir; eskiden kullanıcı yalnızca
+        // "Riskli" görüyor, neyin eksik olduğunu bilemiyordu.
+        _riskReasonsLabel = new Label
+        {
+            AutoSize = true,
+            MaximumSize = new Size(540, 0),
+            Font = new Font("Segoe UI", 8.8F, FontStyle.Regular),
+            ForeColor = Color.Firebrick,
+            Text = string.Empty,
+            Visible = false,
+            Margin = new Padding(0, 0, 0, 6)
+        };
+        container.Controls.Add(_riskReasonsLabel, 0, 3);
+
+        container.Controls.Add(CreateSectionTitle("Servis Kontrolleri"), 0, 4);
         _serviceListView = CreateListView(
             new[]
             {
@@ -112,9 +135,9 @@ internal sealed class MainPopupForm : Form
                 ("İkon", 80)
             },
             170);
-        container.Controls.Add(_serviceListView, 0, 4);
+        container.Controls.Add(_serviceListView, 0, 5);
 
-        container.Controls.Add(CreateSectionTitle("Cihaz Bilgileri"), 0, 5);
+        container.Controls.Add(CreateSectionTitle("Cihaz Bilgileri"), 0, 6);
         _deviceInfoListView = CreateListView(
             new[]
             {
@@ -122,10 +145,10 @@ internal sealed class MainPopupForm : Form
                 ("Değer", 330)
             },
             230);
-        container.Controls.Add(_deviceInfoListView, 0, 6);
+        container.Controls.Add(_deviceInfoListView, 0, 7);
 
         _bitLockerSectionTitle = CreateSectionTitle("BitLocker Bilgisi");
-        container.Controls.Add(_bitLockerSectionTitle, 0, 7);
+        container.Controls.Add(_bitLockerSectionTitle, 0, 8);
         _bitLockerListView = CreateListView(
             new[]
             {
@@ -134,7 +157,7 @@ internal sealed class MainPopupForm : Form
                 ("İkon", 80)
             },
             130);
-        container.Controls.Add(_bitLockerListView, 0, 8);
+        container.Controls.Add(_bitLockerListView, 0, 9);
 
         _lastUpdatedLabel = new Label
         {
@@ -145,7 +168,7 @@ internal sealed class MainPopupForm : Form
             Text = "Son Güncelleme: -",
             Margin = new Padding(0, 8, 0, 0)
         };
-        container.Controls.Add(_lastUpdatedLabel, 0, 9);
+        container.Controls.Add(_lastUpdatedLabel, 0, 10);
 
         _reportingStatusLabel = new Label
         {
@@ -158,7 +181,7 @@ internal sealed class MainPopupForm : Form
             Text = "Sunucu raporu: yapılandırılmadı",
             Margin = new Padding(0, 2, 0, 0)
         };
-        container.Controls.Add(_reportingStatusLabel, 0, 10);
+        container.Controls.Add(_reportingStatusLabel, 0, 11);
 
         Controls.Add(container);
     }
@@ -178,22 +201,40 @@ internal sealed class MainPopupForm : Form
     public void Render(HealthStatus status)
     {
         _overallStatusValueLabel.Text = $"Cihaz Durumu: {status.DeviceStatus}";
-        _overallStatusValueLabel.ForeColor = status.IsHealthy ? Color.ForestGreen : Color.Firebrick;
+        _overallStatusValueLabel.ForeColor = status.IsFallback
+            ? Color.DimGray
+            : status.IsHealthy ? Color.ForestGreen : Color.Firebrick;
         _networkQualityValueLabel.Text = $"Network Hızı: {status.NetworkQuality.BandwidthText}\r\nİnternet Hızı: {status.NetworkQuality.InternetSpeedText}";
         _networkQualityValueLabel.ForeColor = ResolveNetworkQualityColor(status.NetworkQuality.DisplayLevel);
 
+        var reasons = status.RiskReasons
+            .Where(reason => !string.IsNullOrWhiteSpace(reason))
+            .ToList();
+        _riskReasonsLabel.Text = reasons.Count == 0
+            ? string.Empty
+            : string.Join(Environment.NewLine, reasons.Select(reason => $"• {reason}"));
+        _riskReasonsLabel.ForeColor = status.IsFallback ? Color.DimGray : Color.Firebrick;
+        _riskReasonsLabel.Visible = reasons.Count > 0 && !status.IsHealthy;
+
+        // Liste her 45 sn'de yeniden kurulur; kullanıcının kaydırma konumu korunur.
+        var serviceTop = _serviceListView.TopItem?.Index ?? 0;
         _serviceListView.BeginUpdate();
         _serviceListView.Items.Clear();
         foreach (var service in status.ServiceStatuses)
         {
             var item = new ListViewItem(new[] { service.DisplayName, service.StatusText, service.StatusIcon })
             {
-                ForeColor = service.IsHealthy ? Color.ForestGreen : Color.Firebrick
+                ForeColor = service.IsHealthy ? Color.ForestGreen : Color.Firebrick,
+
+                // Hangi servisin bulunamadığı/çalışmadığı üzerine gelince görünür.
+                ToolTipText = service.Details
             };
             _serviceListView.Items.Add(item);
         }
         _serviceListView.EndUpdate();
+        RestoreTopItem(_serviceListView, serviceTop);
 
+        var deviceTop = _deviceInfoListView.TopItem?.Index ?? 0;
         _deviceInfoListView.BeginUpdate();
         _deviceInfoListView.Items.Clear();
         AddDeviceInfo("Makine Adı", status.SystemInfo.MachineName);
@@ -230,6 +271,7 @@ internal sealed class MainPopupForm : Form
         }
 
         _deviceInfoListView.EndUpdate();
+        RestoreTopItem(_deviceInfoListView, deviceTop);
 
         _bitLockerSectionTitle.Visible = status.IsBitLockerApplicable;
         _bitLockerListView.Visible = status.IsBitLockerApplicable;
@@ -249,7 +291,7 @@ internal sealed class MainPopupForm : Form
             {
                 foreach (var volume in status.BitLockerVolumes.OrderBy(v => v.DriveLetter, StringComparer.OrdinalIgnoreCase))
                 {
-                    var item = new ListViewItem(new[] { volume.DriveLetter, volume.EncryptionMethod, volume.StatusIcon })
+                    var item = new ListViewItem(new[] { volume.DriveLetter, DescribeVolume(volume), volume.StatusIcon })
                     {
                         ForeColor = volume.IsHealthy ? Color.ForestGreen : Color.Firebrick
                     };
@@ -267,11 +309,57 @@ internal sealed class MainPopupForm : Form
         _lastUpdatedLabel.Text = $"Son Güncelleme: {status.CheckedAt:dd.MM.yyyy HH:mm:ss}";
     }
 
+    private static string DescribeVolume(BitLockerVolumeInfo volume)
+    {
+        var text = volume.EncryptionMethod switch
+        {
+            "N/A" => "Şifrelenmemiş",
+            "Unknown" => "Okunamadı",
+            var method => method
+        };
+
+        if (volume.ProtectionOn == false && !string.Equals(volume.EncryptionMethod, "N/A", StringComparison.OrdinalIgnoreCase))
+        {
+            text += " · koruma askıda";
+        }
+
+        if (!BerTool.Shared.Products.BitLockerRules.IsConversionComplete(volume.ConversionStatus))
+        {
+            text += $" · {BerTool.Shared.Products.BitLockerRules.DescribeConversion(volume.ConversionStatus)}";
+        }
+
+        return text;
+    }
+
+    private static void RestoreTopItem(ListView listView, int index)
+    {
+        if (index > 0 && index < listView.Items.Count)
+        {
+            try
+            {
+                listView.TopItem = listView.Items[index];
+            }
+            catch (Exception)
+            {
+                // Görünüm henüz oluşturulmadıysa kaydırma konumu önemsizdir.
+            }
+        }
+    }
+
     public void ShowNear(Point trayAnchor)
     {
         var workingArea = Screen.FromPoint(trayAnchor).WorkingArea;
-        var targetX = Math.Min(Math.Max(workingArea.Left, trayAnchor.X - Width + 10), workingArea.Right - Width);
-        var targetY = Math.Min(Math.Max(workingArea.Top, trayAnchor.Y - Height - 10), workingArea.Bottom - Height);
+
+        // Küçük ekranlarda (ör. 1366x768, %125 ölçek) pencere çalışma alanından
+        // yüksek olabilir; başlık çubuğu ekranın dışına taşıyordu. Yükseklik
+        // sınırlanır, içerik kaydırılır ve konum en son üst sınıra göre düzeltilir.
+        if (Height > workingArea.Height - 8)
+        {
+            Height = Math.Max(240, workingArea.Height - 8);
+        }
+
+        var targetX = Math.Max(workingArea.Left, Math.Min(trayAnchor.X - Width + 10, workingArea.Right - Width));
+        var targetY = Math.Max(workingArea.Top, Math.Min(trayAnchor.Y - Height - 10, workingArea.Bottom - Height));
 
         Location = new Point(targetX, targetY);
 
@@ -309,6 +397,7 @@ internal sealed class MainPopupForm : Form
             GridLines = true,
             HeaderStyle = ColumnHeaderStyle.Nonclickable,
             MultiSelect = false,
+            ShowItemToolTips = true,
             Height = height,
             Dock = DockStyle.Top
         };
@@ -338,6 +427,16 @@ internal sealed class MainPopupForm : Form
         {
             e.Cancel = true;
             Hide();
+            return;
+        }
+
+        if (!AllowClose && e.CloseReason != CloseReason.WindowsShutDown)
+        {
+            // taskkill (/F olmadan) veya kurulumun Yeniden Başlatma Yöneticisi
+            // pencereyi kapatmak istediğinde uygulamanın tamamı kapanır.
+            e.Cancel = true;
+            Hide();
+            ExitRequested?.Invoke(this, EventArgs.Empty);
             return;
         }
 

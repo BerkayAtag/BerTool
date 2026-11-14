@@ -11,19 +11,41 @@ namespace BerTool.TrayAgent.Services;
 
 internal sealed class SystemInfoProvider
 {
+    private const string WmiScope = @"root\cimv2";
+
+    /// <summary>
+    /// WMI hizmeti yanıt vermezse sorgular varsayılan olarak sonsuza kadar
+    /// bekler ve durum yenilemesi kilitlenir; her sorgu 20 sn ile sınırlıdır.
+    /// </summary>
+    private static System.Management.EnumerationOptions CreateWmiOptions() => new()
+    {
+        Timeout = TimeSpan.FromSeconds(20),
+        ReturnImmediately = true,
+        Rewindable = false
+    };
+
     public SystemInfoModel GetSystemInfo()
     {
         var machineName = Environment.MachineName;
         var domainOrWorkgroup = "Workgroup";
         using var currentIdentity = WindowsIdentity.GetCurrent();
         var loggedInUser = currentIdentity?.Name ?? $"{Environment.UserDomainName}\\{Environment.UserName}";
+
+        // Tray ajanı kullanıcının kendi oturumunda çalışır; kullanıcı, sürecin
+        // kimliğidir. Win32_ComputerSystem.UserName yalnızca konsol oturumunun
+        // kullanıcısını verir; hızlı kullanıcı değiştirme veya RDP'de yanlış
+        // kişi raporlanıyordu. WMI değeri yalnızca SYSTEM olarak çalışırken
+        // (ör. --report-once bir dağıtım aracıyla) kullanılır.
+        var preferInteractiveUser = currentIdentity?.IsSystem == true;
         var computerModel = "Bilinmiyor";
         ulong totalPhysicalMemoryBytes = 0;
 
         try
         {
             using var searcher = new ManagementObjectSearcher(
-                "SELECT Domain,Workgroup,PartOfDomain,Model,TotalPhysicalMemory,UserName FROM Win32_ComputerSystem");
+                WmiScope,
+                "SELECT Domain,Workgroup,PartOfDomain,Model,TotalPhysicalMemory,UserName FROM Win32_ComputerSystem",
+                CreateWmiOptions());
             using var results = searcher.Get();
             using var systemInfo = results.Cast<ManagementObject>().FirstOrDefault();
 
@@ -42,7 +64,7 @@ internal sealed class SystemInfoProvider
                 }
 
                 var wmiUser = systemInfo["UserName"]?.ToString();
-                if (!string.IsNullOrWhiteSpace(wmiUser))
+                if (preferInteractiveUser && !string.IsNullOrWhiteSpace(wmiUser))
                 {
                     loggedInUser = wmiUser;
                 }
@@ -82,7 +104,9 @@ internal sealed class SystemInfoProvider
         try
         {
             using var searcher = new ManagementObjectSearcher(
-                "SELECT Name,NumberOfCores,NumberOfLogicalProcessors FROM Win32_Processor");
+                WmiScope,
+                "SELECT Name,NumberOfCores,NumberOfLogicalProcessors FROM Win32_Processor",
+                CreateWmiOptions());
             using var results = searcher.Get();
 
             foreach (ManagementObject processor in results)
@@ -120,7 +144,10 @@ internal sealed class SystemInfoProvider
 
         try
         {
-            using var searcher = new ManagementObjectSearcher("SELECT Index,Model,Size FROM Win32_DiskDrive");
+            using var searcher = new ManagementObjectSearcher(
+                WmiScope,
+                "SELECT Index,Model,Size FROM Win32_DiskDrive",
+                CreateWmiOptions());
             using var results = searcher.Get();
 
             foreach (ManagementObject disk in results)

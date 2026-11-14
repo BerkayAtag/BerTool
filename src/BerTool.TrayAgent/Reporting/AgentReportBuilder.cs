@@ -52,6 +52,8 @@ internal static class AgentReportBuilder
             {
                 DriveLetter = item.DriveLetter,
                 EncryptionMethod = item.EncryptionMethod,
+                ProtectionOn = item.ProtectionOn,
+                ConversionStatus = item.ConversionStatus,
                 IsHealthy = item.IsHealthy
             }).ToList(),
             IsBitLockerApplicable = status.IsBitLockerApplicable,
@@ -87,6 +89,6 @@ internal static class AgentReportBuilder
             return informationalVersion.Split('+')[0];
         }
 
-        return assembly.GetName().Version?.ToString(3) ?? "1.5.0";
+        return assembly.GetName().Version?.ToString(3) ?? "1.6.0";
     }
 }

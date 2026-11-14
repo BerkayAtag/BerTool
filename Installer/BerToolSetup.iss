@@ -1,5 +1,5 @@
 ﻿#define MyAppName "BerTool"
-#define MyAppVersion "1.5.0"
+#define MyAppVersion "1.6.0"
 #define MyAppPublisher "Berkay Atağ"
 #define MyAppExeName "BerTool.TrayAgent.exe"
 #define MyAppTaskName "BerTool BitLocker Cache"
@@ -34,7 +34,7 @@ MinVersion=10.0
 UsedUserAreasWarning=no
 CloseApplications=no
 RestartApplications=no
-VersionInfoVersion=1.5.0.0
+VersionInfoVersion=1.6.0.0
 VersionInfoCompany={#MyAppPublisher}
 VersionInfoDescription={#MyAppName} Kurulum
 VersionInfoProductName={#MyAppName}
@@ -77,8 +77,12 @@ Filename: "{app}\{#MyAppExeName}"; Parameters: "--update-bitlocker-cache"; Statu
 Filename: "{app}\{#MyAppExeName}"; Parameters: "--register-bitlocker-task"; StatusMsg: "BitLocker önbellek görevi oluşturuluyor..."; Flags: runhidden waituntilterminated
 ; Etkileşimli kurulumda durum penceresi açılır ki kullanıcı ajanın çalıştığını
 ; görsün; sessiz kurulumda yalnızca tray simgesi başlar.
-Filename: "{app}\{#MyAppExeName}"; Parameters: "--show"; Flags: nowait runasoriginaluser; Check: not WizardSilent
-Filename: "{app}\{#MyAppExeName}"; Flags: nowait runasoriginaluser; Check: WizardSilent
+; SCCM/Intune/BigFix gibi araçlar kurulumu SYSTEM olarak çalıştırır. Bu durumda
+; "asıl kullanıcı" da SYSTEM'dir; ajan oturum 0'da görünmez bir kopya olarak
+; başlıyor ve aynı makine kimliğiyle rapor gönderiyordu. SYSTEM kurulumunda ajan
+; başlatılmaz; kullanıcılar oturum açtığında HKLM Run kaydıyla başlar.
+Filename: "{app}\{#MyAppExeName}"; Parameters: "--show"; Flags: nowait runasoriginaluser; Check: (not WizardSilent) and (not IsSystemAccount)
+Filename: "{app}\{#MyAppExeName}"; Flags: nowait runasoriginaluser; Check: WizardSilent and (not IsSystemAccount)
 
 [UninstallRun]
 Filename: "{sys}\schtasks.exe"; Parameters: "/Delete /TN ""{#MyAppTaskName}"" /F"; Flags: runhidden; RunOnceId: "DeleteBitLockerCacheTask"
@@ -99,6 +103,28 @@ Type: dirifempty; Name: "{commonappdata}\BerTool"
 Type: dirifempty; Name: "{commonappdata}\BerToolUninstallBackup"
 
 [Code]
+function ValidateAgentParameters(): String; forward;
+
+// Sessiz kurulumda (/SUPPRESSMSGBOXES) gösterilmeyen, ama kurulum günlüğüne
+// (/LOG) her zaman yazılan hata bildirimi. Eskiden MsgBox kullanıldığından
+// SYSTEM olarak sessiz çalışan dağıtımda görünmez bir pencere kurulumu
+// sonsuza kadar bekletiyordu.
+procedure ReportError(const Message: string);
+begin
+  Log('HATA: ' + Message);
+  SuppressibleMsgBox(Message, mbError, MB_OK, IDOK);
+end;
+
+function IsSystemAccount(): Boolean;
+var
+  UserName: string;
+begin
+  UserName := GetUserNameString();
+  Result :=
+    (CompareText(UserName, 'SYSTEM') = 0) or
+    ((Length(UserName) > 0) and (UserName[Length(UserName)] = '$'));
+end;
+
 procedure StopAgentProcess();
 var
   ResultCode: Integer;
@@ -114,9 +140,19 @@ end;
 
 function PrepareToInstall(var NeedsRestart: Boolean): String;
 begin
+  // Ajan ayar parametreleri dosyalar kopyalanmadan önce doğrulanır. Eskiden
+  // doğrulama kurulumdan sonra yapılıyor; hatalı parametrede kurulum "başarılı"
+  // (çıkış kodu 0) bitiyor ama ayar yazılmıyordu. Artık kurulum hiçbir şey
+  // değiştirmeden durur ve çıkış kodu 7 ile hatayı bildirir.
+  Result := ValidateAgentParameters();
+  if Result <> '' then
+  begin
+    Log('HATA: ' + Result);
+    Exit;
+  end;
+
   // Eski ajan çalışıyorsa dosyaları kilitlemesini engelle.
   StopAgentProcess();
-  Result := '';
 end;
 
 function TrimTrailingSlashes(const Value: string): string;
@@ -275,12 +311,37 @@ begin
         ewWaitUntilTerminated,
         ResultCode)) or (ResultCode <> 0) then
   begin
-    MsgBox(
+    ReportError(
       'Ajan ayar dosyasının izinleri sıkılaştırılamadı. ' +
       'Dosyayı yalnızca yöneticilerin değiştirebildiğinden emin olun:' + #13#10 +
-      SettingsPath,
-      mbError,
-      MB_OK);
+      SettingsPath);
+  end;
+end;
+
+procedure HardenAgentDataDirectory();
+var
+  ResultCode: Integer;
+  DataDirectory: string;
+begin
+  // %PROGRAMDATA%\BerTool, ProgramData'nın varsayılan izinlerini devralıyordu;
+  // standart kullanıcılar klasöre dosya oluşturabiliyor, örneğin sahte bir
+  // bitlocker-cache.json bırakabiliyordu. Klasör artık kurulumda her zaman
+  // SYSTEM/Administrators tam yetki, Users okuma olacak şekilde kilitlenir.
+  DataDirectory := ExpandConstant('{commonappdata}\BerTool');
+  ForceDirectories(DataDirectory);
+
+  if (not Exec(
+        ExpandConstant('{sys}\icacls.exe'),
+        '"' + DataDirectory + '" /inheritance:r' +
+        ' /grant:r "*S-1-5-18:(OI)(CI)(F)"' +
+        ' "*S-1-5-32-544:(OI)(CI)(F)"' +
+        ' "*S-1-5-32-545:(OI)(CI)(RX)"',
+        '',
+        SW_HIDE,
+        ewWaitUntilTerminated,
+        ResultCode)) or (ResultCode <> 0) then
+  begin
+    Log('UYARI: Ajan veri klasörünün izinleri sıkılaştırılamadı: ' + DataDirectory);
   end;
 end;
 
@@ -342,6 +403,106 @@ begin
     HardenAgentSettingsFile(SettingsPath);
 end;
 
+function ReadTextFile(const FileName: string; var Content: string): Boolean;
+var
+  Lines: TArrayOfString;
+  LineIndex: Integer;
+begin
+  Content := '';
+  Result := LoadStringsFromFile(FileName, Lines);
+  if not Result then
+    Exit;
+
+  for LineIndex := 0 to GetArrayLength(Lines) - 1 do
+    Content := Content + Lines[LineIndex] + #13#10;
+end;
+
+// Kurulum parametrelerini dosyalar kopyalanmadan önce doğrular. Boş dönüş:
+// parametre yok veya geçerli. Dolu dönüş: kurulumu durduran hata mesajı.
+function ValidateAgentParameters(): String;
+var
+  ServerUrl: string;
+  ApiKey: string;
+  SettingsSource: string;
+  SettingsContent: string;
+  ConfiguredServerUrl: string;
+begin
+  Result := '';
+  ServerUrl := Trim(ExpandConstant('{param:SERVERURL|}'));
+  ApiKey := Trim(ExpandConstant('{param:APIKEY|}'));
+  SettingsSource := Trim(ExpandConstant('{param:AGENTSETTINGSFILE|}'));
+
+  if (ServerUrl = '') and (ApiKey = '') and (SettingsSource = '') then
+    Exit;
+
+  if SettingsSource <> '' then
+  begin
+    SettingsSource := ExpandConstant(SettingsSource);
+    if not FileExists(SettingsSource) then
+    begin
+      Result := 'Belirtilen ajan ayar dosyası bulunamadı:' + #13#10 + SettingsSource;
+      Exit;
+    end;
+
+    if not ReadTextFile(SettingsSource, SettingsContent) then
+    begin
+      Result := 'Belirtilen ajan ayar dosyası okunamadı:' + #13#10 + SettingsSource;
+      Exit;
+    end;
+
+    // Tam JSON ayrıştırması yapılmaz; ajanın raporlama için ihtiyaç duyduğu
+    // alanların varlığı kontrol edilir. Eskiden dosya hiç denetlenmeden
+    // kopyalanıyor, hatalı dosyada raporlama sessizce kapalı kalıyordu.
+    if (Pos('{', SettingsContent) = 0) or
+       (Pos('"serverurl"', Lowercase(SettingsContent)) = 0) or
+       (Pos('"apikey"', Lowercase(SettingsContent)) = 0) then
+    begin
+      Result :=
+        'Ajan ayar dosyası geçerli görünmüyor; "serverUrl" ve "apiKey" alanlarını içeren ' +
+        'bir JSON nesnesi olmalıdır:' + #13#10 + SettingsSource;
+      Exit;
+    end;
+
+    ConfiguredServerUrl := ExtractServerUrl(SettingsContent);
+    if (ConfiguredServerUrl <> '') and IsInsecureLanUrl(ConfiguredServerUrl) then
+    begin
+      Result :=
+        'Ajan ayar dosyası yerel ağa açık bir HTTP sunucu adresi içeriyor:' + #13#10 +
+        ConfiguredServerUrl + #13#10 + #13#10 +
+        'Güvenlik nedeniyle uzak sunucular için HTTPS zorunludur. ' +
+        'Dosyadaki serverUrl değerini HTTPS olarak güncelleyin.';
+    end;
+
+    Exit;
+  end;
+
+  if (ServerUrl = '') or (ApiKey = '') then
+  begin
+    Result :=
+      'Sunucu raporlaması için /SERVERURL ve /APIKEY parametreleri birlikte ' +
+      'verilmelidir. Alternatif olarak /AGENTSETTINGSFILE kullanılabilir.';
+    Exit;
+  end;
+
+  ServerUrl := TrimTrailingSlashes(ServerUrl);
+  if (Lowercase(Copy(ServerUrl, 1, 7)) <> 'http://') and
+     (Lowercase(Copy(ServerUrl, 1, 8)) <> 'https://') then
+  begin
+    Result := 'Sunucu adresi http:// veya https:// ile başlamalıdır:' + #13#10 + ServerUrl;
+    Exit;
+  end;
+
+  if IsInsecureLanUrl(ServerUrl) then
+  begin
+    Result :=
+      'Güvenlik nedeniyle yerel ağa açık bir HTTP sunucu adresi kullanılamaz: ' +
+      ServerUrl + #13#10 + #13#10 +
+      'Yerel olmayan sunucular için HTTPS adresi kullanın. ' +
+      'Yalnızca bu makinede çalışan sunucu için http://127.0.0.1 veya ' +
+      'http://localhost kullanılabilir.';
+  end;
+end;
+
 procedure ConfigureAgentReporting();
 var
   ServerUrl: string;
@@ -349,16 +510,14 @@ var
   SettingsSource: string;
   SettingsDirectory: string;
   SettingsPath: string;
-  SettingsContent: string;
-  SettingsLines: TArrayOfString;
   JsonLines: TArrayOfString;
-  LineIndex: Integer;
-  ConfiguredServerUrl: string;
 begin
   ServerUrl := Trim(ExpandConstant('{param:SERVERURL|}'));
   ApiKey := Trim(ExpandConstant('{param:APIKEY|}'));
   SettingsSource := Trim(ExpandConstant('{param:AGENTSETTINGSFILE|}'));
 
+  // Parametreler PrepareToInstall'da doğrulandı; buraya yalnızca geçerli
+  // parametrelerle veya parametresiz gelinir.
   if (ServerUrl = '') and (ApiKey = '') and (SettingsSource = '') then
     Exit;
 
@@ -369,47 +528,9 @@ begin
   if SettingsSource <> '' then
   begin
     SettingsSource := ExpandConstant(SettingsSource);
-    if not FileExists(SettingsSource) then
-    begin
-      MsgBox(
-        'Belirtilen ajan ayar dosyası bulunamadı:' + #13#10 + SettingsSource,
-        mbError,
-        MB_OK);
-      Exit;
-    end;
-
-    if not LoadStringsFromFile(SettingsSource, SettingsLines) then
-    begin
-      MsgBox(
-        'Belirtilen ajan ayar dosyası okunamadı:' + #13#10 + SettingsSource,
-        mbError,
-        MB_OK);
-      Exit;
-    end;
-
-    SettingsContent := '';
-    for LineIndex := 0 to GetArrayLength(SettingsLines) - 1 do
-      SettingsContent := SettingsContent + SettingsLines[LineIndex] + #13#10;
-
-    ConfiguredServerUrl := ExtractServerUrl(SettingsContent);
-    if (ConfiguredServerUrl <> '') and IsInsecureLanUrl(ConfiguredServerUrl) then
-    begin
-      MsgBox(
-        'Ajan ayar dosyası yerel ağa açık bir HTTP sunucu adresi içeriyor:' + #13#10 +
-        ConfiguredServerUrl + #13#10 + #13#10 +
-        'Güvenlik nedeniyle uzak sunucular için HTTPS zorunludur. ' +
-        'Dosyadaki serverUrl değerini HTTPS olarak güncelleyin.',
-        mbError,
-        MB_OK);
-      Exit;
-    end;
-
     if not CopyFile(SettingsSource, SettingsPath, False) then
     begin
-      MsgBox(
-        'Ajan ayar dosyası kopyalanamadı:' + #13#10 + SettingsSource,
-        mbError,
-        MB_OK);
+      ReportError('Ajan ayar dosyası kopyalanamadı:' + #13#10 + SettingsSource);
       Exit;
     end;
 
@@ -417,40 +538,7 @@ begin
     Exit;
   end;
 
-  if (ServerUrl = '') or (ApiKey = '') then
-  begin
-    MsgBox(
-      'Sunucu raporlaması için /SERVERURL ve /APIKEY parametreleri birlikte ' +
-      'verilmelidir. Alternatif olarak /AGENTSETTINGSFILE kullanılabilir.' + #13#10 + #13#10 +
-      'Ajan ayarı yazılmadı; mevcut ayar dosyası varsa korundu.',
-      mbError,
-      MB_OK);
-    Exit;
-  end;
-
   ServerUrl := TrimTrailingSlashes(ServerUrl);
-  if (Lowercase(Copy(ServerUrl, 1, 7)) <> 'http://') and
-     (Lowercase(Copy(ServerUrl, 1, 8)) <> 'https://') then
-  begin
-    MsgBox(
-      'Sunucu adresi http:// veya https:// ile başlamalıdır:' + #13#10 + ServerUrl,
-      mbError,
-      MB_OK);
-    Exit;
-  end;
-
-  if IsInsecureLanUrl(ServerUrl) then
-  begin
-    MsgBox(
-      'Güvenlik nedeniyle yerel ağa açık bir HTTP sunucu adresi kullanılamaz:' +
-      ServerUrl + #13#10 + #13#10 +
-      'Yerel olmayan sunucular için HTTPS adresi kullanın. ' +
-      'Yalnızca bu makinede çalışan sunucu için http://127.0.0.1 veya ' +
-      'http://localhost kullanılabilir.',
-      mbError,
-      MB_OK);
-    Exit;
-  end;
 
   SetArrayLength(JsonLines, 6);
   JsonLines[0] := '{';
@@ -462,10 +550,7 @@ begin
 
   if not SaveStringsToUTF8File(SettingsPath, JsonLines, False) then
   begin
-    MsgBox(
-      'Ajan ayar dosyası yazılamadı:' + #13#10 + SettingsPath,
-      mbError,
-      MB_OK);
+    ReportError('Ajan ayar dosyası yazılamadı:' + #13#10 + SettingsPath);
     Exit;
   end;
 
@@ -474,8 +559,16 @@ end;
 
 procedure CurStepChanged(CurStep: TSetupStep);
 begin
-  if CurStep = ssPostInstall then
+  // [Run] bölümü (BitLocker cache, görev kaydı ve ajanın başlatılması)
+  // ssPostInstall'dan ÖNCE çalışır. Ayarlar eskiden ssPostInstall'da
+  // yazıldığından temiz kurulumda ajan /SERVERURL ve /APIKEY ayarı henüz
+  // yokken başlıyor, ayarları yalnızca açılışta okuduğu için bir sonraki
+  // oturuma kadar raporlama yapmıyordu. Bu adımlar uygulama dosyalarına
+  // bağlı olmadığından dosyalar kopyalanmadan önce yapılır; parametreler
+  // PrepareToInstall'da doğrulanmıştır.
+  if CurStep = ssInstall then
   begin
+    HardenAgentDataDirectory();
     RestoreAgentData();
     ConfigureAgentReporting();
   end;

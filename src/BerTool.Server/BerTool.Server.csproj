@@ -6,7 +6,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <RootNamespace>BerTool.Server</RootNamespace>
     <AssemblyName>BerTool.Server</AssemblyName>
-    <Version>1.5.0</Version>
+    <Version>1.6.0</Version>
     <ApplicationIcon>..\BerTool.TrayAgent\Branding\BerToolBrand.ico</ApplicationIcon>
     <!-- Sunucu tek bir yönetim makinesinde, çoğu zaman kullanıcı oturumunda çalışır.
          Sunucu tipi çöp toplayıcı çekirdek başına büyük yığınlar ayırır ve belleği

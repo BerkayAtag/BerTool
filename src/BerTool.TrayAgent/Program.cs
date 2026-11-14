@@ -113,7 +113,7 @@ internal static class Program
                 new ServiceHealthChecker(),
                 new BitLockerChecker(),
                 new SystemInfoProvider(),
-                new NetworkQualityChecker(),
+                new NetworkQualityChecker(measureSynchronously: true),
                 configurationProvider);
 
             var status = evaluator.Evaluate();
@@ -228,10 +228,25 @@ internal static class Program
         builder.AppendLine("    <Description>BerTool BitLocker cache update</Description>");
         builder.AppendLine("    <URI>\\BerTool BitLocker Cache</URI>");
         builder.AppendLine("  </RegistrationInfo>");
+        // Oturum açılışına ek olarak saatlik ve kilit açılışında çalışır. Eskiden
+        // yalnızca oturum açılışında yenilendiği için uykuya alınıp haftalarca
+        // kapatılmayan dizüstünde cache (ör. şifre çözme sonrası) eski kalıyordu.
         builder.AppendLine("  <Triggers>");
         builder.AppendLine("    <LogonTrigger>");
         builder.AppendLine("      <Enabled>true</Enabled>");
         builder.AppendLine("    </LogonTrigger>");
+        builder.AppendLine("    <SessionStateChangeTrigger>");
+        builder.AppendLine("      <Enabled>true</Enabled>");
+        builder.AppendLine("      <StateChange>SessionUnlock</StateChange>");
+        builder.AppendLine("    </SessionStateChangeTrigger>");
+        builder.AppendLine("    <TimeTrigger>");
+        builder.AppendLine("      <Repetition>");
+        builder.AppendLine("        <Interval>PT1H</Interval>");
+        builder.AppendLine("        <StopAtDurationEnd>false</StopAtDurationEnd>");
+        builder.AppendLine("      </Repetition>");
+        builder.AppendLine("      <StartBoundary>2026-01-01T00:05:00</StartBoundary>");
+        builder.AppendLine("      <Enabled>true</Enabled>");
+        builder.AppendLine("    </TimeTrigger>");
         builder.AppendLine("  </Triggers>");
         builder.AppendLine("  <Principals>");
         builder.AppendLine("    <Principal id=\"Author\">");

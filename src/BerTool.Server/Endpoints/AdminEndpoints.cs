@@ -283,10 +283,56 @@ internal static class AdminEndpoints
             return Results.Ok(result);
         }).RequireRateLimiting("ad-test");
 
-        group.MapPost("/agent-key/rotate", async (ServerStore store, CancellationToken cancellationToken) =>
+        group.MapPost("/agent-key/rotate", async (
+            HttpContext context,
+            ServerStore store,
+            CancellationToken cancellationToken) =>
         {
-            var apiKey = await store.RotateAgentApiKeyAsync(cancellationToken);
-            return Results.Ok(new RotateAgentKeyResponse { ApiKey = apiKey });
+            // Gövde isteğe bağlıdır. Gövdesiz istek (eski istemciler, betikler)
+            // önceki davranışı korur: eski anahtar hemen geçersiz olur.
+            var request = new RotateAgentKeyRequest();
+            if (context.Request.ContentLength is > 0 ||
+                context.Request.Headers.ContainsKey("Transfer-Encoding"))
+            {
+                try
+                {
+                    request = await context.Request.ReadFromJsonAsync<RotateAgentKeyRequest>(cancellationToken)
+                        ?? new RotateAgentKeyRequest();
+                }
+                catch (JsonException)
+                {
+                    return Results.BadRequest(new ApiErrorDto
+                    {
+                        Message = "Anahtar yenileme isteği geçerli JSON biçiminde değil."
+                    });
+                }
+            }
+
+            if (request.KeepPreviousKey && request.GraceHours is < 1 or > ServerStore.MaxApiKeyGraceHours)
+            {
+                return Results.BadRequest(new ApiErrorDto
+                {
+                    Message = $"Geçiş süresi 1 ile {ServerStore.MaxApiKeyGraceHours} saat arasında olmalıdır."
+                });
+            }
+
+            var (apiKey, previousKeyExpiresUtc) = await store.RotateAgentApiKeyAsync(
+                request.KeepPreviousKey,
+                request.GraceHours,
+                cancellationToken);
+            return Results.Ok(new RotateAgentKeyResponse
+            {
+                ApiKey = apiKey,
+                PreviousKeyExpiresUtc = previousKeyExpiresUtc
+            });
+        });
+
+        group.MapDelete("/agent-key/previous", async (ServerStore store, CancellationToken cancellationToken) =>
+        {
+            var revoked = await store.RevokePreviousAgentApiKeyAsync(cancellationToken);
+            return revoked
+                ? Results.Ok(new ApiMessageDto { Message = "Önceki ajan API anahtarı iptal edildi." })
+                : Results.NotFound(new ApiErrorDto { Message = "Geçerli bir önceki anahtar yok." });
         });
 
         group.MapPost("/password", async (
@@ -360,7 +406,11 @@ internal static class AdminEndpoints
                 statusCode: StatusCodes.Status429TooManyRequests);
         }
 
-        var adResult = adService.Authenticate(request.Username, request.Password);
+        // LDAP istemcisi eşzamanlıdır ve AD zaman aşımı 60 sn'ye kadar
+        // ayarlanabilir. İstek iş parçacığını bloklamamak için ayrı iş
+        // parçacığında çalıştırılır; AD yavaşken eşzamanlı girişler sunucunun
+        // iş parçacığı havuzunu tüketip ajan raporlarını da bekletiyordu.
+        var adResult = await Task.Run(() => adService.Authenticate(request.Username, request.Password));
         if (adResult.Status == AdAuthenticationStatus.Success)
         {
             throttle.Reset(remoteIp, request.Username);
@@ -430,6 +480,14 @@ internal static class AdminEndpoints
 
         if (adResult.Status is AdAuthenticationStatus.Unavailable or AdAuthenticationStatus.ConfigurationError)
         {
+            // AD erişilemezken yerel yedek hesap da denenmiş ve başarısız olmuştur.
+            // Sayılmazsa AD kesintisi boyunca yerel yönetici şifresine karşı
+            // hesap kilidi devreye girmeden deneme yapılabiliyordu.
+            if (adService.IsLocalLoginEnabled)
+            {
+                throttle.RecordFailure(remoteIp, request.Username);
+            }
+
             logger.LogError(
                 "AD kimlik doğrulaması kullanılamıyor. Uzak IP: {RemoteIp}. Ayrıntı: {Error}",
                 remoteIp,
@@ -554,6 +612,14 @@ internal static class AdminEndpoints
 
     private static string BuildCsv(IReadOnlyList<MachineSummaryDto> machines)
     {
+        // Zamanlar sunucunun yerel saatiyle yazılır; başlıkta saat dilimi
+        // belirtilir. Eskiden farklı saat dilimindeki yönetici veya UTC'de
+        // çalışan sunucuda CSV ile konsol saatleri açıklamasız farklıydı.
+        var offset = TimeZoneInfo.Local.GetUtcOffset(DateTime.UtcNow);
+        var zoneLabel = offset == TimeSpan.Zero
+            ? "UTC"
+            : $"UTC{(offset < TimeSpan.Zero ? "-" : "+")}{offset.Duration():hh\\:mm}";
+
         var builder = new StringBuilder();
         builder.AppendLine(string.Join(';',
             Csv("Durum"),
@@ -565,10 +631,11 @@ internal static class AdminEndpoints
             Csv("IP Adresleri"),
             Csv("Ürün Durumları"),
             Csv("Risk Nedenleri"),
-            Csv("Son Görülme"),
-            Csv("Son Rapor"),
+            Csv($"Son Görülme ({zoneLabel})"),
+            Csv($"Son Rapor ({zoneLabel})"),
             Csv("Ajan Sürümü"),
-            Csv("Yapılandırma Güncel")));
+            Csv("Yapılandırma Güncel"),
+            Csv("Ajan Anahtarı")));
 
         foreach (var machine in machines)
         {
@@ -588,7 +655,8 @@ internal static class AdminEndpoints
                 Csv(machine.LastSeenUtc.ToLocalTime().ToString("dd.MM.yyyy HH:mm:ss", CultureInfo.InvariantCulture)),
                 Csv(machine.CollectedAtUtc.ToLocalTime().ToString("dd.MM.yyyy HH:mm:ss", CultureInfo.InvariantCulture)),
                 Csv(machine.AgentVersion),
-                Csv(machine.IsConfigCurrent ? "Evet" : "Hayır")));
+                Csv(machine.IsConfigCurrent ? "Evet" : "Hayır"),
+                Csv(machine.UsesPreviousApiKey ? "Eski" : "Güncel")));
         }
 
         return builder.ToString();

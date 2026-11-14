@@ -87,7 +87,7 @@ internal sealed class AgentSettingsProvider
             try
             {
                 var json = File.ReadAllText(filePath);
-                settings = JsonSerializer.Deserialize<AgentSettings>(json, ReportingJson.Options) ?? new AgentSettings();
+                settings = JsonSerializer.Deserialize<AgentSettings>(json, ReportingJson.SettingsFileOptions) ?? new AgentSettings();
             }
             catch (Exception exception)
             {

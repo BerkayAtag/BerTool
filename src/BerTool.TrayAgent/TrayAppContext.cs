@@ -10,6 +10,16 @@ internal sealed class TrayAppContext : ApplicationContext
 {
     private const int RefreshIntervalMilliseconds = 45 * 1000;
 
+    // WMI veya servis denetimi askıda kalırsa yenileme sonsuza kadar
+    // beklemesin; zaman aşımında durum "alınamadı" gösterilir ve bir sonraki
+    // yenileme yeniden dener. Eskiden yenileme kilidi kalıcı olarak takılıyordu.
+    private static readonly TimeSpan EvaluateTimeout = TimeSpan.FromMinutes(2);
+
+    // Bundan eski bir durum sunucuya "güncel" diye gönderilmez. Yenileme
+    // takıldığında rapor zamanlayıcısı eski anlık görüntüyü taze zaman
+    // damgasıyla göndermeye devam ediyordu; makine konsolda canlı görünüyordu.
+    private static readonly TimeSpan MaxReportableStatusAge = TimeSpan.FromMinutes(5);
+
     private readonly NotifyIcon _notifyIcon;
     private readonly MainPopupForm _popupForm;
     private readonly System.Windows.Forms.Timer _refreshTimer;
@@ -25,6 +35,7 @@ internal sealed class TrayAppContext : ApplicationContext
     private readonly CancellationTokenSource _lifetimeCancellation = new();
     private readonly Icon _healthyIcon;
     private readonly Icon _riskIcon;
+    private readonly Icon _pendingIcon;
     private readonly object _refreshLock = new();
 
     private bool _isRefreshing;
@@ -50,14 +61,23 @@ internal sealed class TrayAppContext : ApplicationContext
 
         _healthyIcon = IconFactory.CreateHealthyIcon();
         _riskIcon = IconFactory.CreateRiskIcon();
+        _pendingIcon = IconFactory.CreatePendingIcon();
 
         _popupForm = new MainPopupForm();
         _popupForm.SetReportingStatus(_reportingService.GetStatusText(), _reportingService.HasError);
+        _popupForm.ExitRequested += (_, _) =>
+        {
+            if (!_isExiting)
+            {
+                Logger.Info("Pencere sistem tarafından kapatılmak istendi; uygulama kapatılıyor.");
+                ExitThread();
+            }
+        };
 
         _notifyIcon = new NotifyIcon
         {
-            Icon = _riskIcon,
-            Text = "Güvende değilsiniz",
+            Icon = _pendingIcon,
+            Text = "BerTool: durum kontrol ediliyor...",
             Visible = true,
             ContextMenuStrip = BuildContextMenu()
         };
@@ -102,21 +122,42 @@ internal sealed class TrayAppContext : ApplicationContext
         var menu = new ContextMenuStrip();
         menu.Items.Add("Durum Penceresini Aç", null, (_, _) => ShowPopup());
         menu.Items.Add("Durum Penceresini Gizle", null, (_, _) => _popupForm.Hide());
-        menu.Items.Add("Durumu Yenile", null, async (_, _) => await RefreshStatusAsync().ConfigureAwait(true));
+        menu.Items.Add("Durumu Yenile", null, async (_, _) => await ManualRefreshAsync().ConfigureAwait(true));
         menu.Items.Add("Sunucuya Raporla", null, async (_, _) => await ReportNowAsync().ConfigureAwait(true));
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add("Çıkış", null, (_, _) => ExitThread());
         return menu;
     }
 
-    private async Task RefreshStatusAsync()
+    private async Task ManualRefreshAsync()
+    {
+        // Yenileme zaten sürüyorsa istek eskiden sessizce yok sayılıyordu.
+        if (!await RefreshStatusAsync().ConfigureAwait(true) && !_isExiting)
+        {
+            _notifyIcon.ShowBalloonTip(
+                2500,
+                "BerTool",
+                "Durum zaten yenileniyor; birkaç saniye içinde güncellenecek.",
+                ToolTipIcon.Info);
+        }
+    }
+
+    private bool IsReportable(HealthStatus? status)
+    {
+        return status is not null &&
+            !status.IsFallback &&
+            DateTime.Now - status.CheckedAt < MaxReportableStatusAge;
+    }
+
+    /// <returns>Yenileme bu çağrıda yapıldıysa true; zaten sürüyorsa false.</returns>
+    private async Task<bool> RefreshStatusAsync()
     {
         // Aynı anda birden fazla ölçüm çalıştırıp UI'yi yormamak için tekil refresh kilidi.
         lock (_refreshLock)
         {
             if (_isRefreshing)
             {
-                return;
+                return false;
             }
 
             _isRefreshing = true;
@@ -136,30 +177,40 @@ internal sealed class TrayAppContext : ApplicationContext
                 }
                 catch (OperationCanceledException) when (_lifetimeCancellation.IsCancellationRequested)
                 {
-                    return;
+                    return true;
                 }
             }
 
-            var status = await Task.Run(_statusEvaluator.Evaluate).ConfigureAwait(true);
+            var status = await Task.Run(_statusEvaluator.Evaluate)
+                .WaitAsync(EvaluateTimeout)
+                .ConfigureAwait(true);
             if (_isExiting)
             {
-                return;
+                return true;
             }
 
-            _latestStatus = status;
-            statusToReport = status;
             ApplyStatus(status);
+            if (!status.IsFallback)
+            {
+                _latestStatus = status;
+                statusToReport = status;
+            }
         }
         catch (Exception exception)
         {
-            Logger.Error("Durum yenileme işlemi sırasında hata oluştu.", exception);
+            Logger.Error(
+                exception is TimeoutException
+                    ? $"Durum denetimi {EvaluateTimeout.TotalSeconds:0} saniyede tamamlanmadı (WMI veya servis yöneticisi yanıt vermiyor)."
+                    : "Durum yenileme işlemi sırasında hata oluştu.",
+                exception);
             if (_isExiting)
             {
-                return;
+                return true;
             }
 
-            _latestStatus = HealthStatus.CreateFallback("Durum bilgisi alınamadı.");
-            ApplyStatus(_latestStatus);
+            // Yer tutucu yalnızca gösterilir; raporlanabilir son durum olarak
+            // saklanmaz (sunucuya boş servis listesi gitmesin).
+            ApplyStatus(HealthStatus.CreateFallback("Durum bilgisi alınamadı."));
         }
         finally
         {
@@ -196,6 +247,7 @@ internal sealed class TrayAppContext : ApplicationContext
         }
 
         ScheduleNextReport();
+        return true;
     }
 
     /// <summary>
@@ -232,7 +284,12 @@ internal sealed class TrayAppContext : ApplicationContext
         }
 
         var status = _latestStatus;
-        if (status is not null)
+        if (status is not null && !IsReportable(status))
+        {
+            Logger.Warn(
+                $"Son durum {status.CheckedAt:HH:mm:ss} tarihli ve çok eski; durum yenilemesi tamamlanana kadar rapor gönderilmiyor.");
+        }
+        else if (status is not null)
         {
             try
             {
@@ -277,11 +334,20 @@ internal sealed class TrayAppContext : ApplicationContext
             return;
         }
 
+        // Elle raporlamada önce durum yenilenir; eskiden 45 sn'ye kadar eski
+        // anlık görüntü gönderiliyordu. Yenileme zaten sürüyorsa onun sonucu
+        // beklenmez, mevcut güncel durum kullanılır.
+        await RefreshStatusAsync().ConfigureAwait(true);
+        if (_isExiting)
+        {
+            return;
+        }
+
         var status = _latestStatus;
-        if (status is null)
+        if (!IsReportable(status))
         {
             MessageBox.Show(
-                "Durum bilgisi henüz hazır değil. Lütfen birkaç saniye sonra tekrar deneyin.",
+                "Durum bilgisi henüz hazır değil veya alınamadı. Lütfen birkaç saniye sonra tekrar deneyin.",
                 "BerTool",
                 MessageBoxButtons.OK,
                 MessageBoxIcon.Information);
@@ -291,7 +357,7 @@ internal sealed class TrayAppContext : ApplicationContext
         try
         {
             var success = await _reportingService
-                .ReportNowAsync(status, _lifetimeCancellation.Token)
+                .ReportNowAsync(status!, _lifetimeCancellation.Token)
                 .ConfigureAwait(true);
 
             _popupForm.SetReportingStatus(_reportingService.GetStatusText(), _reportingService.HasError);
@@ -323,7 +389,7 @@ internal sealed class TrayAppContext : ApplicationContext
             return;
         }
 
-        _notifyIcon.Icon = status.IsHealthy ? _healthyIcon : _riskIcon;
+        _notifyIcon.Icon = status.IsFallback ? _pendingIcon : status.IsHealthy ? _healthyIcon : _riskIcon;
         _notifyIcon.Text = status.TooltipText;
         _popupForm.Render(status);
     }
@@ -408,6 +474,7 @@ internal sealed class TrayAppContext : ApplicationContext
 
         _healthyIcon.Dispose();
         _riskIcon.Dispose();
+        _pendingIcon.Dispose();
 
         base.ExitThreadCore();
     }
