@@ -1,3 +1,4 @@
+using BerTool.Shared.Products;
 using BerTool.TrayAgent.Logging;
 using BerTool.TrayAgent.Models;
 using System.Diagnostics;
@@ -23,12 +24,32 @@ internal sealed class BitLockerChecker
     private static readonly Regex XtsAes128Regex = new(@"XTS[\s\-]?AES[\s\-]?128", RegexOptions.Compiled | RegexOptions.IgnoreCase);
     private static readonly Regex Aes256Regex = new(@"AES[\s\-]?256", RegexOptions.Compiled | RegexOptions.IgnoreCase);
     private static readonly Regex Aes128Regex = new(@"AES[\s\-]?128", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+    private static readonly Regex ProtectionRegex = new(
+        @"^(Protection Status|Koruma Durumu)\s*:\s*(.+)$",
+        RegexOptions.Compiled | RegexOptions.IgnoreCase);
+    private static readonly Regex ConversionRegex = new(
+        @"^(Conversion Status|Dönüştürme Durumu|Dönüşüm Durumu)\s*:\s*(.+)$",
+        RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+    // WMI hizmeti askıda kalırsa sorgu varsayılan olarak sonsuza kadar bekler;
+    // yenileme döngüsü kilitlenir ve eski durum "güncel" diye raporlanırdı.
+    private static readonly TimeSpan WmiTimeout = TimeSpan.FromSeconds(20);
+
+    // SYSTEM görevi cache'i saatlik ve oturum açılışında yeniler. Bundan eski
+    // bir cache gerçeği yansıtmayabilir; değeri "okunamadı" sayılır.
+    private static readonly TimeSpan MaxCacheAge = TimeSpan.FromDays(7);
+
     private static bool _accessDeniedLogged;
+    private static bool _staleCacheLogged;
 
     public IReadOnlyList<BitLockerVolumeInfo> GetVolumeStatuses()
     {
         var directVolumes = QueryVolumeStatuses();
-        if (directVolumes.Count == 0 || directVolumes.Any(ShouldUseCacheFor))
+
+        // Cache yalnızca doğrudan okunamayan (Unknown) birimler için kullanılır.
+        // Eskiden WMI'nin gerçek "şifresiz" (N/A) sonucu da cache'teki eski
+        // XTS-AES-256 değeriyle eziliyordu; şifresi çözülen disk sağlıklı görünüyordu.
+        if (directVolumes.Count == 0 || directVolumes.Any(IsUnknown))
         {
             var cachedVolumes = TryReadCache();
             if (cachedVolumes.Count > 0)
@@ -66,6 +87,7 @@ internal sealed class BitLockerChecker
             var cache = new BitLockerCacheFile
             {
                 UpdatedAt = DateTime.Now,
+                UpdatedAtUtc = DateTimeOffset.UtcNow,
                 Volumes = volumes
             };
             var json = JsonSerializer.Serialize(cache);
@@ -108,16 +130,23 @@ internal sealed class BitLockerChecker
             return new List<BitLockerVolumeInfo>();
         }
 
-        var methods = driveLetters.ToDictionary(letter => letter, _ => "N/A", StringComparer.OrdinalIgnoreCase);
+        // Başlangıç değeri "Unknown"dur: okunamayan birim "şifresiz" (N/A) diye
+        // raporlanmaz. Eskiden standart kullanıcıda cache yoksa her disk N/A
+        // görünüyor, "BitLocker bilgisi okunamadı" yerine gerçekten şifresiz bir
+        // diskle aynı "XTS-AES-256 dışındaki şifreleme" riski üretiliyordu.
+        var readings = driveLetters.ToDictionary(
+            letter => letter,
+            _ => new VolumeReading("Unknown", null, string.Empty),
+            StringComparer.OrdinalIgnoreCase);
 
         try
         {
-            // Birincil kaynak: WMI'den doğrudan EncryptionMethod kodlarını okuma.
+            // Birincil kaynak: WMI'den yöntem, koruma ve dönüştürme durumu.
             foreach (var item in QueryWithWmi())
             {
-                if (methods.ContainsKey(item.Key))
+                if (readings.ContainsKey(item.Key))
                 {
-                    methods[item.Key] = item.Value;
+                    readings[item.Key] = item.Value;
                 }
             }
         }
@@ -137,7 +166,7 @@ internal sealed class BitLockerChecker
             Logger.Error("BitLocker WMI sorgusu başarısız oldu.", exception);
         }
 
-        foreach (var driveLetter in driveLetters.Where(letter => NeedsManageBdeFallback(methods[letter])))
+        foreach (var driveLetter in driveLetters.Where(letter => NeedsManageBdeFallback(readings[letter].Method)))
         {
             if (!CanUseManageBde())
             {
@@ -148,8 +177,7 @@ internal sealed class BitLockerChecker
             try
             {
                 // WMI erişilemediğinde veya değer dönmediğinde manage-bde ile fallback.
-                var fallbackMethod = QueryWithManageBde(driveLetter);
-                methods[driveLetter] = fallbackMethod;
+                readings[driveLetter] = QueryWithManageBde(driveLetter);
             }
             catch (Exception exception)
             {
@@ -158,17 +186,21 @@ internal sealed class BitLockerChecker
         }
 
         return driveLetters
-            .Select(driveLetter =>
-            {
-                var method = NormalizeMethod(methods[driveLetter]);
-                return new BitLockerVolumeInfo
-                {
-                    DriveLetter = driveLetter,
-                    EncryptionMethod = method,
-                    IsHealthy = string.Equals(method, "XTS-AES-256", StringComparison.OrdinalIgnoreCase)
-                };
-            })
+            .Select(driveLetter => CreateVolume(driveLetter, readings[driveLetter]))
             .ToList();
+    }
+
+    private static BitLockerVolumeInfo CreateVolume(string driveLetter, VolumeReading reading)
+    {
+        var method = NormalizeMethod(reading.Method);
+        return new BitLockerVolumeInfo
+        {
+            DriveLetter = driveLetter,
+            EncryptionMethod = method,
+            ProtectionOn = reading.ProtectionOn,
+            ConversionStatus = reading.ConversionStatus,
+            IsHealthy = BitLockerRules.IsHealthy(method, reading.ProtectionOn, reading.ConversionStatus)
+        };
     }
 
     private static IReadOnlyList<BitLockerVolumeInfo> TryReadCache()
@@ -186,8 +218,37 @@ internal sealed class BitLockerChecker
                 return Array.Empty<BitLockerVolumeInfo>();
             }
 
+            var updatedAtUtc = cache.UpdatedAtUtc ??
+                (cache.UpdatedAt == default ? (DateTimeOffset?)null : new DateTimeOffset(cache.UpdatedAt));
+            var age = updatedAtUtc is { } value ? DateTimeOffset.UtcNow - value : TimeSpan.MaxValue;
+            if (age > MaxCacheAge || age < TimeSpan.FromDays(-1))
+            {
+                if (!_staleCacheLogged)
+                {
+                    _staleCacheLogged = true;
+                    Logger.Warn(
+                        $"BitLocker cache çok eski veya geçersiz tarihli ({updatedAtUtc?.ToString("u") ?? "tarih yok"}); " +
+                        "kullanılmıyor. 'BerTool BitLocker Cache' görevini kontrol edin.");
+                }
+
+                return Array.Empty<BitLockerVolumeInfo>();
+            }
+
+            // Sağlık bayrağı dosyadan alınmaz, kayıtlı değerlerden yeniden
+            // hesaplanır. Aynı sürücü birden çok kez yazılmışsa ilki kullanılır;
+            // eskiden yinelenen sürücü harfi her döngüde istisnaya yol açıyordu.
             return cache.Volumes
-                .Where(volume => !IsUnknown(volume))
+                .Where(volume => volume is not null &&
+                    !string.IsNullOrWhiteSpace(volume.DriveLetter) &&
+                    !IsUnknown(volume))
+                .GroupBy(volume => NormalizeDriveLetter(volume.DriveLetter), StringComparer.OrdinalIgnoreCase)
+                .Select(group =>
+                {
+                    var volume = group.First();
+                    return CreateVolume(
+                        group.Key,
+                        new VolumeReading(volume.EncryptionMethod, volume.ProtectionOn, volume.ConversionStatus ?? string.Empty));
+                })
                 .ToList();
         }
         catch (Exception exception)
@@ -206,9 +267,11 @@ internal sealed class BitLockerChecker
             return cachedVolumes;
         }
 
-        var cacheByDrive = cachedVolumes.ToDictionary(volume => volume.DriveLetter, StringComparer.OrdinalIgnoreCase);
+        var cacheByDrive = cachedVolumes
+            .GroupBy(volume => volume.DriveLetter, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(group => group.Key, group => group.First(), StringComparer.OrdinalIgnoreCase);
         return directVolumes
-            .Select(volume => ShouldUseCacheFor(volume) && cacheByDrive.TryGetValue(volume.DriveLetter, out var cachedVolume)
+            .Select(volume => IsUnknown(volume) && cacheByDrive.TryGetValue(volume.DriveLetter, out var cachedVolume)
                 ? cachedVolume
                 : volume)
             .ToList();
@@ -222,19 +285,15 @@ internal sealed class BitLockerChecker
 
     private static bool IsUnknown(BitLockerVolumeInfo volume)
     {
-        return string.Equals(volume.EncryptionMethod, "Unknown", StringComparison.OrdinalIgnoreCase);
+        return BitLockerRules.IsUnknownMethod(volume.EncryptionMethod);
     }
 
-    private static bool ShouldUseCacheFor(BitLockerVolumeInfo volume)
+    private static IReadOnlyDictionary<string, VolumeReading> QueryWithWmi()
     {
-        return IsUnknown(volume) ||
-            string.Equals(volume.EncryptionMethod, "N/A", StringComparison.OrdinalIgnoreCase);
-    }
-
-    private static IReadOnlyDictionary<string, string> QueryWithWmi()
-    {
-        var output = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-        var scope = new ManagementScope(@"\\.\root\CIMV2\Security\MicrosoftVolumeEncryption");
+        var output = new Dictionary<string, VolumeReading>(StringComparer.OrdinalIgnoreCase);
+        var scope = new ManagementScope(
+            @"\\.\root\CIMV2\Security\MicrosoftVolumeEncryption",
+            new ConnectionOptions { Timeout = WmiTimeout });
         scope.Connect();
 
         // Yalnızca birkaç sütun seçilirse WMI nesnesi yolsuz (kısmi) döner ve
@@ -242,7 +301,8 @@ internal sealed class BitLockerChecker
         // state of the object" hatasıyla başarısız olur. Tam nesne gerekir.
         using var searcher = new ManagementObjectSearcher(
             scope,
-            new ObjectQuery("SELECT * FROM Win32_EncryptableVolume WHERE DriveLetter IS NOT NULL"));
+            new ObjectQuery("SELECT * FROM Win32_EncryptableVolume WHERE DriveLetter IS NOT NULL"),
+            new System.Management.EnumerationOptions { Timeout = WmiTimeout, ReturnImmediately = true, Rewindable = false });
         using var results = searcher.Get();
 
         foreach (ManagementObject volume in results)
@@ -255,27 +315,44 @@ internal sealed class BitLockerChecker
                     continue;
                 }
 
-                var normalizedDriveLetter = NormalizeDriveLetter(driveLetter);
+                var method = TryInvokeUInt(volume, "GetEncryptionMethod", "EncryptionMethod", out var methodCode)
+                    ? MapEncryptionMethodCode(methodCode)
+                    : MapEncryptionMethodCode(volume["EncryptionMethod"]);
 
-                if (TryGetMethodFromWmiCall(volume, out var methodFromCall))
+                // ProtectionStatus: 0 kapalı/askıda, 1 açık, 2 bilinmiyor (kilitli birim).
+                bool? protectionOn = null;
+                if (TryInvokeUInt(volume, "GetProtectionStatus", "ProtectionStatus", out var protectionCode) ||
+                    TryReadUInt(volume, "ProtectionStatus", out protectionCode))
                 {
-                    output[normalizedDriveLetter] = methodFromCall;
-                    continue;
+                    protectionOn = protectionCode switch
+                    {
+                        0 => false,
+                        1 => true,
+                        _ => null
+                    };
                 }
 
-                output[normalizedDriveLetter] = MapEncryptionMethodCode(volume["EncryptionMethod"]);
+                var conversion = TryInvokeUInt(volume, "GetConversionStatus", "ConversionStatus", out var conversionCode) ||
+                    TryReadUInt(volume, "ConversionStatus", out conversionCode)
+                        ? BitLockerRules.MapConversionStatus(conversionCode)
+                        : string.Empty;
+
+                output[NormalizeDriveLetter(driveLetter)] = new VolumeReading(method, protectionOn, conversion);
             }
         }
 
         return output;
     }
 
-    private static bool TryGetMethodFromWmiCall(ManagementObject volume, out string method)
+    private static bool TryInvokeUInt(ManagementObject volume, string methodName, string outputName, out uint value)
     {
-        method = "Unknown";
+        value = 0;
         try
         {
-            using var outParams = volume.InvokeMethod("GetEncryptionMethod", null, null) as ManagementBaseObject;
+            using var outParams = volume.InvokeMethod(
+                methodName,
+                null,
+                new InvokeMethodOptions(null, WmiTimeout)) as ManagementBaseObject;
             if (outParams is null)
             {
                 return false;
@@ -286,17 +363,30 @@ internal sealed class BitLockerChecker
                 return false;
             }
 
-            method = MapEncryptionMethodCode(outParams["EncryptionMethod"]);
-            return true;
+            return uint.TryParse(outParams[outputName]?.ToString(), out value);
         }
         catch (Exception exception)
         {
-            Logger.Warn($"GetEncryptionMethod çağrısı başarısız: {exception.Message}");
+            Logger.Warn($"{methodName} çağrısı başarısız: {exception.Message}");
             return false;
         }
     }
 
-    private static string QueryWithManageBde(string driveLetter)
+    private static bool TryReadUInt(ManagementObject volume, string propertyName, out uint value)
+    {
+        value = 0;
+        try
+        {
+            return uint.TryParse(volume[propertyName]?.ToString(), out value);
+        }
+        catch (ManagementException)
+        {
+            // Özellik eski Windows sürümlerinde bulunmayabilir.
+            return false;
+        }
+    }
+
+    private static VolumeReading QueryWithManageBde(string driveLetter)
     {
         var processStartInfo = new ProcessStartInfo
         {
@@ -311,7 +401,7 @@ internal sealed class BitLockerChecker
         using var process = Process.Start(processStartInfo);
         if (process is null)
         {
-            return "N/A";
+            return new VolumeReading("Unknown", null, string.Empty);
         }
 
         var outputTask = process.StandardOutput.ReadToEndAsync();
@@ -339,7 +429,7 @@ internal sealed class BitLockerChecker
                 // Zaman aşımı sonrası akış hataları yalnızca loglanır.
             }
 
-            return "Unknown";
+            return new VolumeReading("Unknown", null, string.Empty);
         }
 
         var output = outputTask.GetAwaiter().GetResult();
@@ -361,7 +451,96 @@ internal sealed class BitLockerChecker
             Logger.Warn($"manage-bde şifreleme yöntemi ayrıştırılamadı ({driveLetter}).");
         }
 
-        return parsedMethod;
+        var (protectionOn, conversion) = ParseManageBdeStatus(output);
+        return new VolumeReading(parsedMethod, protectionOn, conversion);
+    }
+
+    /// <summary>
+    /// manage-bde çıktısından koruma ve dönüştürme durumunu okur (İngilizce ve
+    /// Türkçe Windows). Tanınmayan dilde değerler boş kalır; bilinmeyen durum
+    /// sağlık değerlendirmesinde cezalandırılmaz.
+    /// </summary>
+    internal static (bool? ProtectionOn, string ConversionStatus) ParseManageBdeStatus(string output)
+    {
+        bool? protectionOn = null;
+        var conversion = string.Empty;
+
+        foreach (var rawLine in (output ?? string.Empty).Split('\n'))
+        {
+            var line = rawLine.Trim();
+            var protectionMatch = ProtectionRegex.Match(line);
+            if (protectionMatch.Success)
+            {
+                var value = FoldForMatch(protectionMatch.Groups[2].Value);
+                if (value.Contains("OFF") || value.Contains("KAPALI") || value.Contains("ASKI"))
+                {
+                    protectionOn = false;
+                }
+                else if (value.Contains(" ON") || value == "ON" || value.Contains("ACIK"))
+                {
+                    protectionOn = true;
+                }
+
+                continue;
+            }
+
+            var conversionMatch = ConversionRegex.Match(line);
+            if (conversionMatch.Success)
+            {
+                conversion = MapManageBdeConversion(conversionMatch.Groups[2].Value);
+            }
+        }
+
+        return (protectionOn, conversion);
+    }
+
+    private static string MapManageBdeConversion(string value)
+    {
+        var text = FoldForMatch(value);
+        var decrypt = text.Contains("DECRYPT") || text.Contains("COZ") || text.Contains("SIFRESIZ");
+
+        if (text.Contains("PROGRESS") || text.Contains("DEVAM") || text.Contains("SURUYOR"))
+        {
+            return decrypt ? "DecryptionInProgress" : "EncryptionInProgress";
+        }
+
+        if (text.Contains("PAUSED") || text.Contains("DURAKLA"))
+        {
+            return decrypt ? "DecryptionPaused" : "EncryptionPaused";
+        }
+
+        if (decrypt)
+        {
+            return "FullyDecrypted";
+        }
+
+        if (text.Contains("ENCRYPTED") || text.Contains("SIFRELI") || text.Contains("SIFRELENMIS"))
+        {
+            return BitLockerRules.FullyEncrypted;
+        }
+
+        return string.Empty;
+    }
+
+    /// <summary>Türkçe karakterleri ASCII büyük harfe indirger (İ/ı → I, Ş → S ...).</summary>
+    private static string FoldForMatch(string value)
+    {
+        var builder = new System.Text.StringBuilder(value.Length);
+        foreach (var character in value.Trim())
+        {
+            builder.Append(char.ToUpperInvariant(character) switch
+            {
+                'İ' or 'I' or 'ı' => 'I',
+                'Ş' => 'S',
+                'Ç' => 'C',
+                'Ö' => 'O',
+                'Ü' => 'U',
+                'Ğ' => 'G',
+                var other => other
+            });
+        }
+
+        return builder.ToString();
     }
 
     private static string ParseManageBdeOutput(string output)
@@ -574,6 +753,12 @@ internal sealed class BitLockerChecker
     private sealed class BitLockerCacheFile
     {
         public DateTime UpdatedAt { get; init; }
+
+        /// <summary>Saat dilimi değişikliklerinden etkilenmeyen yazılma zamanı (1.6.0+).</summary>
+        public DateTimeOffset? UpdatedAtUtc { get; init; }
+
         public IReadOnlyList<BitLockerVolumeInfo> Volumes { get; init; } = Array.Empty<BitLockerVolumeInfo>();
     }
+
+    private sealed record VolumeReading(string Method, bool? ProtectionOn, string ConversionStatus);
 }

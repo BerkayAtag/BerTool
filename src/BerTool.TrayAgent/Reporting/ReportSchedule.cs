@@ -17,6 +17,23 @@ internal static class ReportSchedule
     /// </summary>
     public static readonly TimeSpan MaximumDelay = TimeSpan.FromMinutes(15);
 
+    /// <summary>
+    /// Planlanan zaman geldiyse veya sistem saati geri alındığı için planlanan
+    /// zaman, planlanan aralıktan daha uzağa kaydıysa rapor zamanı gelmiştir.
+    /// Eskiden saat bir gün ileriyken rapor gönderen makine, saat senkronize
+    /// olunca bir gün boyunca hiç rapor göndermiyor ve çevrimdışı görünüyordu.
+    /// </summary>
+    public static bool IsDue(DateTimeOffset nowUtc, DateTimeOffset nextUtc, TimeSpan scheduledInterval)
+    {
+        if (nowUtc >= nextUtc)
+        {
+            return true;
+        }
+
+        return scheduledInterval > TimeSpan.Zero &&
+            nextUtc - nowUtc > scheduledInterval + TimeSpan.FromMinutes(1);
+    }
+
     public static TimeSpan GetDelay(DateTimeOffset nextReportAtUtc, DateTimeOffset nowUtc)
     {
         var delay = nextReportAtUtc - nowUtc;

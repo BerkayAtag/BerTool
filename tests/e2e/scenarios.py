@@ -475,13 +475,30 @@ def uc08_09(r, env, agent):
 def uc10(r, env, agent):
     admin = env.admin_client()
     old_key = env.api_key
-    st, body = admin.call('POST', '/api/admin/agent-key/rotate')
+
+    # 1.6.0: anahtar yenilenirken eski anahtar geçiş süresince geçerli kalabilir;
+    # böylece filonun raporlaması aynı anda kesilmez.
+    st, body = admin.call('POST', '/api/admin/agent-key/rotate', {'keepPreviousKey': True, 'graceHours': 24})
     new_key = body.get('apiKey') if st == 200 else None
-    r.check('yeni ajan API anahtarı üretildi', st == 200 and new_key and len(new_key) >= 32, (st, body))
+    r.check('geçiş süreli yeni anahtar üretildi', st == 200 and new_key and len(new_key) >= 32 and body.get('previousKeyExpiresUtc'), (st, body))
     st, _ = env.agent_config(old_key)
-    r.check('eski anahtar artık reddediliyor (401)', st == 401, st)
+    r.check('geçiş süresinde eski anahtar hâlâ kabul ediliyor', st == 200, st)
     st, _ = env.agent_config(new_key)
     r.check('yeni anahtar kabul ediliyor', st == 200, st)
+    settings = env.settings()
+    r.check('ayarlarda eski anahtarın bitiş zamanı görünüyor', bool(settings.get('previousAgentApiKeyExpiresUtc')), settings.get('previousAgentApiKeyExpiresUtc'))
+    st, _ = admin.call('DELETE', '/api/admin/agent-key/previous')
+    r.check('yönetici eski anahtarı iptal edebiliyor', st == 200, st)
+    st, _ = env.agent_config(old_key)
+    r.check('iptalden sonra eski anahtar reddediliyor (401)', st == 401, st)
+
+    # Gövdesiz istek (eski istemciler) önceki davranışı korur: hemen geçersiz kılar.
+    st, body = admin.call('POST', '/api/admin/agent-key/rotate')
+    newest_key = body.get('apiKey') if st == 200 else None
+    r.check('gövdesiz yenileme anahtar üretti', st == 200 and newest_key and not body.get('previousKeyExpiresUtc'), (st, body))
+    st, _ = env.agent_config(new_key)
+    r.check('gövdesiz yenilemede önceki anahtar hemen reddediliyor (401)', st == 401, st)
+    new_key = newest_key
     env.api_key = new_key
     if agent.live:
         with open(agent.settings_path, 'r', encoding='utf-8-sig') as handle:

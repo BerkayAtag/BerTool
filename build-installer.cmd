@@ -50,9 +50,11 @@ if "%WITH_SERVER%"=="1" (
 )
 
 set "ISCC_EXE="
+rem winget kullanıcı bazlı kurulumu %LOCALAPPDATA%\Programs altına yapar.
 for %%I in (
   "%ProgramFiles(x86)%\Inno Setup 6\ISCC.exe"
   "%ProgramFiles%\Inno Setup 6\ISCC.exe"
+  "%LOCALAPPDATA%\Programs\Inno Setup 6\ISCC.exe"
 ) do (
   if not defined ISCC_EXE if exist %%I set "ISCC_EXE=%%~I"
 )

@@ -6,7 +6,9 @@
     --border-strong: #c9d5e2;
     --text: #10263d;
     --text-soft: #52667d;
-    --muted: #7b8ca0;
+    /* 10,5-11 px tablo başlıkları ve alt satırlarda okunabilirlik için en az
+       4,5:1 kontrast (eski #7b8ca0 beyaz zeminde ~3,4:1 idi). */
+    --muted: #5f7086;
     --navy: #0b2338;
     --navy-soft: #15344f;
     --brand: #e30613;
@@ -994,6 +996,30 @@ p {
     font-weight: 700;
 }
 
+/* Makine adı detay penceresini açar. Dar ekranlarda "Detay" düğmesi yatay
+   kaydırmanın dışında kaldığı için tek erişim yolu buydu. */
+.machine-link {
+    display: inline;
+    padding: 0;
+    border: 0;
+    background: none;
+    font-family: inherit;
+    text-align: left;
+    cursor: pointer;
+    overflow-wrap: anywhere;
+}
+
+.machine-link:hover {
+    color: var(--brand);
+    text-decoration: underline;
+}
+
+.machine-link:focus-visible {
+    outline: 3px solid var(--focus-ring);
+    outline-offset: 2px;
+    border-radius: 3px;
+}
+
 .cell-sub {
     margin-top: 2px;
     color: var(--muted);
@@ -1113,7 +1139,26 @@ p {
 
 .pagination-buttons {
     display: flex;
+    flex-wrap: wrap;
+    align-items: center;
     gap: 4px;
+}
+
+.page-size-field select {
+    height: 30px;
+    margin-right: 6px;
+    padding: 4px 8px;
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius-sm);
+    background: var(--surface);
+    color: var(--text);
+    font-size: 12px;
+}
+
+.page-size-field select:focus {
+    outline: none;
+    border-color: var(--brand);
+    box-shadow: 0 0 0 3px var(--focus-ring);
 }
 
 .info-banner {
@@ -1250,6 +1295,42 @@ p {
 
 .secret-panel .field {
     padding: 0;
+}
+
+/* Anahtar yenileme geçiş süresi: eski anahtarın bitişi ve iptal düğmesi. */
+.key-transition {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    margin: 14px 20px 0;
+    padding: 12px 14px;
+    border: 1px solid #f2d29b;
+    border-radius: 9px;
+    background: var(--amber-soft);
+}
+
+.key-transition-text {
+    flex: 1 1 240px;
+    color: var(--text);
+    font-size: 12.5px;
+    line-height: 1.5;
+}
+
+.key-rotate-options {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 14px 20px 0;
+}
+
+.key-rotate-options + .btn {
+    margin: 14px 20px 20px;
+}
+
+.modal:focus {
+    outline: none;
 }
 
 .copy-row {
@@ -1892,7 +1973,8 @@ html[data-theme="dark"] .chip-ok {
     border-color: rgba(95, 217, 139, 0.35);
 }
 
-html[data-theme="dark"] .secret-panel {
+html[data-theme="dark"] .secret-panel,
+html[data-theme="dark"] .key-transition {
     border-color: rgba(247, 196, 92, 0.35);
 }
 

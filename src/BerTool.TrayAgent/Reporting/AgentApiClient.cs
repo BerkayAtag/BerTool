@@ -31,13 +31,16 @@ internal sealed class AgentApiClient : IDisposable
             AutomaticDecompression = DecompressionMethods.GZip | DecompressionMethods.Deflate,
 
             // API anahtarının yönlendirme ile farklı bir sunucuya sızmasını engelle.
-            AllowAutoRedirect = false
+            AllowAutoRedirect = false,
+
+            // Kimlik doğrulamalı kurumsal proxy (407) oturum kimliğiyle geçilir.
+            DefaultProxyCredentials = CredentialCache.DefaultCredentials
         })
         {
             Timeout = RequestTimeout
         };
 
-        _httpClient.DefaultRequestHeaders.UserAgent.ParseAdd($"BerTool.TrayAgent/{typeof(AgentApiClient).Assembly.GetName().Version?.ToString(3) ?? "1.5.0"}");
+        _httpClient.DefaultRequestHeaders.UserAgent.ParseAdd($"BerTool.TrayAgent/{typeof(AgentApiClient).Assembly.GetName().Version?.ToString(3) ?? "1.6.0"}");
         _httpClient.DefaultRequestHeaders.Accept.ParseAdd("application/json");
     }
 

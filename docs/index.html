@@ -10,7 +10,7 @@
 <meta property="og:image" content="https://berkayatag.github.io/BerTool/screenshots/dashboard.png">
 <title>BerTool — Makine güvenliği tek ekranda</title>
 <link rel="icon" type="image/png" href="assets/bertool-logo.png">
-<link rel="stylesheet" href="site.css?v=1.5.0-1">
+<link rel="stylesheet" href="site.css?v=1.6.0">
 <script>
   // Varsayılan aydınlık tema; ziyaretçinin seçimi bu tarayıcıda hatırlanır.
   // Sayfa boyanmadan önce uygulanır, böylece tema geçişinde yanıp sönme olmaz.
@@ -40,7 +40,7 @@
 <main id="main">
   <section class="hero">
     <div class="hero-copy">
-      <p class="eyebrow">Sürüm 1.5.0 · Windows x64</p>
+      <p class="eyebrow">Sürüm 1.6.0 · Windows x64</p>
       <h1>Makine güvenliği<br><em>tek ekranda.</em></h1>
       <p class="lead">BerTool, Windows bilgisayarlardaki güvenlik ajanlarını, servisleri ve BitLocker şifrelemesini izler. Tray ajanı durumu kullanıcıya gösterir, merkezi konsol tüm filoyu sağlıklı, riskli ve çevrimdışı olarak ayırır.</p>
       <div class="actions">
@@ -74,7 +74,7 @@
       <article>
         <span class="num">02</span>
         <h3>BitLocker denetimi</h3>
-        <p>Tüm sabit disklerde yalnızca XTS-AES-256 sağlıklı kabul edilir. Risk sunucuda yeniden hesaplanır; ajanın beyanına güvenilmez.</p>
+        <p>Tüm sabit disklerde XTS-AES-256, açık koruma ve tamamlanmış şifreleme aranır; askıya alınmış koruma da yakalanır. Risk sunucuda yeniden hesaplanır; ajanın beyanına güvenilmez.</p>
       </article>
       <article>
         <span class="num">03</span>
@@ -94,7 +94,7 @@
       <article>
         <span class="num">06</span>
         <h3>Güvenli varsayılanlar</h3>
-        <p>Uzak bağlantıda HTTPS zorunlu, PBKDF2 şifre özeti, özetlenmiş ajan anahtarı, DPAPI ile korunan anahtarlar ve sıkı güvenlik başlıkları.</p>
+        <p>Uzak bağlantıda HTTPS zorunlu, PBKDF2 şifre özeti, özetlenmiş ve raporlamayı kesmeden yenilenebilen ajan anahtarı, DPAPI ile korunan anahtarlar ve sıkı güvenlik başlıkları.</p>
       </article>
     </div>
   </section>
@@ -120,23 +120,23 @@
       <p class="muted">Her iki kurulum da self-contained'dir; hedef makinede .NET gerekmez. Programlar ve Özellikler'de yayıncı <strong>Berkay Atağ</strong> olarak görünür.</p>
     </div>
     <ol class="steps">
-      <li><strong>Sunucuyu kurun.</strong><p><code>BerTool.Server.Setup-1.5.0.exe</code> dosyasını çift tıklayın, <em>Kur</em>'a basın. Konsol açılır; ilk giriş bilgileri bitiş ekranından görüntülenebilir.</p></li>
+      <li><strong>Sunucuyu kurun.</strong><p><code>BerTool.Server.Setup-1.6.0.exe</code> dosyasını çift tıklayın, <em>Kur</em>'a basın. Konsol açılır; ilk giriş bilgileri bitiş ekranından görüntülenebilir.</p></li>
       <li><strong>Ajan anahtarını alın.</strong><p>Konsolda <em>Sunucu Ayarları → Ajan API Anahtarı</em> bölümünden anahtarı üretin veya ilk kurulum dosyasındaki anahtarı kullanın.</p></li>
-      <li><strong>İstemciyi dağıtın.</strong><p><code>BerTool.Client.Setup-1.5.0.exe /VERYSILENT /SERVERURL="https://sunucu" /APIKEY="…"</code> ile sessiz kurun ya da çift tıklayıp yerel modda çalıştırın.</p></li>
+      <li><strong>İstemciyi dağıtın.</strong><p><code>BerTool.Client.Setup-1.6.0.exe /VERYSILENT /SERVERURL="https://sunucu" /APIKEY="…"</code> ile sessiz kurun ya da çift tıklayıp yerel modda çalıştırın.</p></li>
     </ol>
   </section>
 
   <section class="section download">
     <div>
-      <h2>BerTool 1.5.0</h2>
-      <p class="muted">Sunucu ve istemci için ayrı Windows x64 kurulum dosyaları, SHA-256 özetleriyle.</p>
+      <h2>BerTool 1.6.0</h2>
+      <p class="muted">Sunucu ve istemci için ayrı Windows x64 kurulum dosyaları, SHA-256 özetleriyle. Bu sürüm kapsamlı bir hata düzeltme sürümüdür: BitLocker denetimi, kesintisiz anahtar yenileme, hafif ağ ölçümü ve daha dayanıklı sunucu (<a class="inline-link" href="https://github.com/BerkayAtag/BerTool/blob/main/CHANGELOG.md">değişiklikler</a>).</p>
       <p class="note">Her sürüm, temiz bir Windows'ta gerçek ajanla 17 uçtan uca kullanım senaryosundan geçer (<a class="inline-link" href="https://github.com/BerkayAtag/BerTool/blob/main/docs/USE-CASES.md">senaryolar</a>).</p>
       <p class="note">Kurulum dosyaları Authenticode ile imzalı değildir; SmartScreen uyarısında "Ek bilgi → Yine de çalıştır" seçin. Kurum dağıtımında kendi kod imzalama sertifikanızı kullanın.</p>
     </div>
     <div class="download-links">
-      <a class="button" href="https://github.com/BerkayAtag/BerTool/releases/download/v1.5.0/BerTool.Server.Setup-1.5.0.exe">Sunucu kurulumu <span aria-hidden="true">↓</span></a>
-      <a class="button secondary" href="https://github.com/BerkayAtag/BerTool/releases/download/v1.5.0/BerTool.Client.Setup-1.5.0.exe">İstemci kurulumu <span aria-hidden="true">↓</span></a>
-      <a class="link" href="https://github.com/BerkayAtag/BerTool/releases/tag/v1.5.0">Sürüm notları ve SHA-256 →</a>
+      <a class="button" href="https://github.com/BerkayAtag/BerTool/releases/download/v1.6.0/BerTool.Server.Setup-1.6.0.exe">Sunucu kurulumu <span aria-hidden="true">↓</span></a>
+      <a class="button secondary" href="https://github.com/BerkayAtag/BerTool/releases/download/v1.6.0/BerTool.Client.Setup-1.6.0.exe">İstemci kurulumu <span aria-hidden="true">↓</span></a>
+      <a class="link" href="https://github.com/BerkayAtag/BerTool/releases/tag/v1.6.0">Sürüm notları ve SHA-256 →</a>
     </div>
   </section>
 </main>

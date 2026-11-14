@@ -15,6 +15,7 @@ internal sealed class AgentReportingService : IDisposable
     private readonly AgentConfigurationProvider _configurationProvider;
 
     private DateTimeOffset _nextReportAtUtc = DateTimeOffset.MinValue;
+    private TimeSpan _scheduledInterval = TimeSpan.Zero;
     private DateTimeOffset? _lastSuccessAtUtc;
     private string? _lastError;
     private bool _disposed;
@@ -74,13 +75,19 @@ internal sealed class AgentReportingService : IDisposable
 
         lock (_stateLock)
         {
-            if (DateTimeOffset.UtcNow < _nextReportAtUtc)
+            if (!ReportSchedule.IsDue(DateTimeOffset.UtcNow, _nextReportAtUtc, _scheduledInterval))
             {
                 return false;
             }
         }
 
         return await ReportCoreAsync(status, waitForLock: false, cancellationToken).ConfigureAwait(false);
+    }
+
+    private void ScheduleNext(TimeSpan interval)
+    {
+        _scheduledInterval = interval;
+        _nextReportAtUtc = DateTimeOffset.UtcNow + interval;
     }
 
     public async Task<bool> ReportNowAsync(HealthStatus status, CancellationToken cancellationToken)
@@ -160,7 +167,7 @@ internal sealed class AgentReportingService : IDisposable
                 lock (_stateLock)
                 {
                     _lastSuccessAtUtc = DateTimeOffset.UtcNow;
-                    _nextReportAtUtc = DateTimeOffset.UtcNow + TimeSpan.FromSeconds(intervalSeconds);
+                    ScheduleNext(TimeSpan.FromSeconds(intervalSeconds));
                     _lastError = null;
                 }
 
@@ -176,7 +183,7 @@ internal sealed class AgentReportingService : IDisposable
             {
                 lock (_stateLock)
                 {
-                    _nextReportAtUtc = DateTimeOffset.UtcNow + AuthenticationRetryInterval;
+                    ScheduleNext(AuthenticationRetryInterval);
                     _lastError = exception.Message;
                 }
 
@@ -191,7 +198,7 @@ internal sealed class AgentReportingService : IDisposable
             {
                 lock (_stateLock)
                 {
-                    _nextReportAtUtc = DateTimeOffset.UtcNow + FailureRetryInterval;
+                    ScheduleNext(FailureRetryInterval);
                     _lastError = exception.Message;
                 }
 

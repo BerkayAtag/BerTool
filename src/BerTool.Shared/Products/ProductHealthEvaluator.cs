@@ -146,48 +146,96 @@ public static class ProductHealthEvaluator
         return string.Equals(service.Status, "Running", StringComparison.OrdinalIgnoreCase);
     }
 
+    /// <summary>
+    /// Beklenen servisi en güçlü eşleşmeden en zayıfa doğru arar: önce birebir
+    /// servis adı, sonra birebir görünen ad, sonra noktalama/boşluk farkı
+    /// gözetmeyen eşitlik, en son içerme. Eskiden listedeki ilk zayıf eşleşme
+    /// döndürülüyordu; görünen adında beklenen adı içeren başka (çoğu zaman
+    /// durmuş) bir servis alfabetik olarak önce geldiğinde ürün, asıl servis
+    /// çalışırken "Çalışmıyor" görünüyordu. Aynı düzeydeki adaylar arasında
+    /// çalışan servis tercih edilir.
+    /// </summary>
     private static ServiceSnapshotDto? FindService(
         IReadOnlyCollection<ServiceSnapshotDto> services,
         string expectedServiceName)
     {
+        var expectedNormalized = NormalizeServiceIdentifier(expectedServiceName);
+        ServiceSnapshotDto? best = null;
+        var bestRank = int.MaxValue;
+        var bestRunning = false;
+
         foreach (var service in services)
         {
-            if (MatchesService(service, expectedServiceName))
+            var rank = MatchRank(service, expectedServiceName, expectedNormalized);
+            if (rank == NoMatch)
             {
-                return service;
+                continue;
+            }
+
+            var running = IsRunning(service);
+            if (rank < bestRank || (rank == bestRank && running && !bestRunning))
+            {
+                best = service;
+                bestRank = rank;
+                bestRunning = running;
+
+                if (rank == 0 && running)
+                {
+                    break;
+                }
             }
         }
 
-        return null;
+        return best;
     }
 
-    private static bool MatchesService(ServiceSnapshotDto service, string expectedServiceName)
+    private const int NoMatch = int.MaxValue;
+
+    private static int MatchRank(ServiceSnapshotDto service, string expectedServiceName, string expectedNormalized)
     {
-        if (string.Equals(service.Name, expectedServiceName, StringComparison.OrdinalIgnoreCase) ||
-            string.Equals(service.DisplayName, expectedServiceName, StringComparison.OrdinalIgnoreCase))
+        if (string.Equals(service.Name, expectedServiceName, StringComparison.OrdinalIgnoreCase))
         {
-            return true;
+            return 0;
         }
 
-        var expectedNormalized = NormalizeServiceIdentifier(expectedServiceName);
+        if (string.Equals(service.DisplayName, expectedServiceName, StringComparison.OrdinalIgnoreCase))
+        {
+            return 1;
+        }
+
         if (expectedNormalized.Length == 0)
         {
-            return false;
+            return NoMatch;
         }
 
         var serviceNameNormalized = NormalizeServiceIdentifier(service.Name);
-        var displayNameNormalized = NormalizeServiceIdentifier(service.DisplayName);
-
-        if (serviceNameNormalized == expectedNormalized || displayNameNormalized == expectedNormalized)
+        if (serviceNameNormalized == expectedNormalized)
         {
-            return true;
+            return 2;
+        }
+
+        var displayNameNormalized = NormalizeServiceIdentifier(service.DisplayName);
+        if (displayNameNormalized == expectedNormalized)
+        {
+            return 3;
         }
 
         // Kısa adlarda (örn. "DLP") yanlış eşleşmeyi önlemek için
         // yalnızca yeterince uzun adlarda içerme kontrolü yapılır.
-        return expectedNormalized.Length >= 8 &&
-            (serviceNameNormalized.Contains(expectedNormalized, StringComparison.OrdinalIgnoreCase) ||
-             displayNameNormalized.Contains(expectedNormalized, StringComparison.OrdinalIgnoreCase));
+        if (expectedNormalized.Length >= 8)
+        {
+            if (serviceNameNormalized.Contains(expectedNormalized, StringComparison.Ordinal))
+            {
+                return 4;
+            }
+
+            if (displayNameNormalized.Contains(expectedNormalized, StringComparison.Ordinal))
+            {
+                return 5;
+            }
+        }
+
+        return NoMatch;
     }
 
     private static string NormalizeServiceIdentifier(string value)

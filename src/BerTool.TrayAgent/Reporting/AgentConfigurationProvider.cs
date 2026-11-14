@@ -86,7 +86,10 @@ internal sealed class AgentConfigurationProvider
         var now = DateTimeOffset.UtcNow;
         lock (_sync)
         {
-            if (!force && now < _nextFetchAtUtc)
+            // Planlanan zaman, olası en uzun bekleme süresinden daha uzaktaysa
+            // sistem saati geri alınmıştır; beklemeden yeniden denenir.
+            var clockMovedBack = _nextFetchAtUtc - now > AuthenticationRetryInterval + TimeSpan.FromMinutes(1);
+            if (!force && now < _nextFetchAtUtc && !clockMovedBack)
             {
                 return false;
             }

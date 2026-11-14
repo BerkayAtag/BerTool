@@ -1,5 +1,6 @@
 using BerTool.Server.Storage;
 using BerTool.Shared.Contracts;
+using BerTool.Shared.Products;
 using System.Net;
 using System.Text;
 
@@ -64,15 +65,20 @@ internal static class ReportSanitizer
         report.BitLockerVolumes = (report.BitLockerVolumes ?? new List<BitLockerVolumeDto>())
             .Where(item => item is not null && !string.IsNullOrWhiteSpace(item.DriveLetter))
             .Take(64)
-            .Select(item => new BitLockerVolumeDto
+            .Select(item =>
             {
-                DriveLetter = NormalizeDriveLetter(item.DriveLetter),
-                EncryptionMethod = Text(item.EncryptionMethod, 128),
-                // Sağlık bayrağı ajandan alınmaz; tek kabul edilen yöntemden hesaplanır.
-                IsHealthy = string.Equals(
-                    Text(item.EncryptionMethod, 128),
-                    "XTS-AES-256",
-                    StringComparison.OrdinalIgnoreCase)
+                var method = Text(item.EncryptionMethod, 128);
+                var conversion = Text(item.ConversionStatus, 32);
+                return new BitLockerVolumeDto
+                {
+                    DriveLetter = NormalizeDriveLetter(item.DriveLetter),
+                    EncryptionMethod = method,
+                    ProtectionOn = item.ProtectionOn,
+                    ConversionStatus = conversion,
+                    // Sağlık bayrağı ajandan alınmaz; yöntem, koruma ve dönüştürme
+                    // durumundan sunucuda hesaplanır.
+                    IsHealthy = BitLockerRules.IsHealthy(method, item.ProtectionOn, conversion)
+                };
             })
             .ToList();
 

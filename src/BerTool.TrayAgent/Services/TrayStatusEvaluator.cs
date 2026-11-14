@@ -1,3 +1,5 @@
+using BerTool.Shared.Contracts;
+using BerTool.Shared.Products;
 using BerTool.TrayAgent.Logging;
 using BerTool.TrayAgent.Models;
 using BerTool.TrayAgent.Reporting;
@@ -48,14 +50,16 @@ internal sealed class TrayStatusEvaluator
             {
                 bitLockerVolumes = _bitLockerChecker.GetVolumeStatuses().ToArray();
 
-                if (bitLockerVolumes.Length == 0)
-                {
-                    riskReasons.Add("BitLocker bilgisi okunamadı.");
-                }
-                else if (bitLockerVolumes.Any(volume => !volume.IsHealthy))
-                {
-                    riskReasons.Add("XTS-AES-256 dışındaki şifreleme tespit edildi.");
-                }
+                // Sunucuyla aynı kural ve metinler: yöntem, koruma (askıya alınmış
+                // mı) ve dönüştürme (şifreleme tamamlandı mı) birlikte değerlendirilir.
+                riskReasons.AddRange(BitLockerRules.EvaluateRiskReasons(
+                    bitLockerVolumes.Select(volume => new BitLockerVolumeDto
+                    {
+                        DriveLetter = volume.DriveLetter,
+                        EncryptionMethod = volume.EncryptionMethod,
+                        ProtectionOn = volume.ProtectionOn,
+                        ConversionStatus = volume.ConversionStatus
+                    }).ToList()));
             }
 
             return new HealthStatus

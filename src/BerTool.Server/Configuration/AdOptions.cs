@@ -166,9 +166,13 @@ public sealed class AdOptions
     }
 
     /// <summary>
-    /// Oturum çerezini AD yapılandırmasına bağlar. Yapılandırma değiştiğinde
-    /// eski oturumların geçersiz olmasını sağlar. Hizmet hesabı parolası da
-    /// parmak izine dahildir; parola değiştiğinde eski oturumlar düşer.
+    /// Oturum çerezini AD yapılandırmasına bağlar. Kimliği veya yetkiyi
+    /// etkileyen bir ayar değiştiğinde eski oturumların geçersiz olmasını
+    /// sağlar. Hizmet hesabı parolası da parmak izine dahildir; parola
+    /// değiştiğinde eski oturumlar düşer. Zaman aşımı ve yerel yedek giriş
+    /// gibi AD oturumunun geçerliliğini etkilemeyen ayarlar bilinçli olarak
+    /// dışarıda tutulur; eskiden yalnızca zaman aşımını değiştiren AD
+    /// yöneticisi kendi oturumunu kapatıyordu.
     /// </summary>
     public string CreateFingerprint()
     {
@@ -186,9 +190,7 @@ public sealed class AdOptions
             (BaseDn ?? string.Empty).Trim().ToLowerInvariant(),
             (BindDn ?? string.Empty).Trim().ToLowerInvariant(),
             passwordHash,
-            (AdminGroup ?? string.Empty).Trim().ToLowerInvariant(),
-            AllowLocalFallback,
-            TimeoutSeconds);
+            (AdminGroup ?? string.Empty).Trim().ToLowerInvariant());
 
         var hash = SHA256.HashData(Encoding.UTF8.GetBytes(value));
         return Convert.ToHexString(hash)[..16];

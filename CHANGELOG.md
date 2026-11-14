@@ -1,5 +1,62 @@
 # Değişiklikler
 
+## 1.6.0 — 14 Kasım 2026
+
+Kapsamlı hata düzeltme sürümü. Sunucu, yönetim konsolu, tray ajanı ve istemci kurulumu baştan sona incelendi; bulunan hatalar düzeltildi, kullanımı zor iki özellik yeniden tasarlandı.
+
+### Yeniden tasarlanan özellikler
+- **Ajan API anahtarı yenileme artık filoyu koparmıyor.** Eskiden yeni anahtar üretmek eski anahtarı anında geçersiz kılıyor, tüm ajanlar güncellenene kadar raporlama duruyordu. Artık eski anahtar seçilebilir bir geçiş süresi (varsayılan 7 gün) boyunca geçerli kalır; hâlâ eski anahtarı kullanan makineler listede ve detayda "eski anahtar" olarak işaretlenir, ayarlar ekranında sayıları ve bitiş zamanı görünür, "Eski anahtarı şimdi iptal et" ile süre beklenmeden kapatılabilir. Anahtar sızdıysa geçiş süresi kapatılıp eski anahtar hemen geçersiz kılınabilir. Gövdesiz API isteği (betikler) eski davranışı korur.
+- **İnternet hızı ölçümü hafifletildi.** Her 10 dakikada 16 MB indiriliyordu (sürekli açık makine başına günde ~2,3 GB, uzak kullanıcılarda VPN üzerinden) ve ölçüm durum yenilemesini 30 sn'ye kadar bekletiyordu. Artık 2 saatte bir en fazla 8 MB ile arka planda ölçülür (günde ~96 MB), veri diske yazılmaz (antivirüsün her `.msu` dosyasını taraması da biter), kimlik doğrulamalı kurumsal proxy desteklenir.
+
+### Güvenlik ve BitLocker
+- BitLocker koruması askıya alınmış (`Suspend-BitLocker`, `manage-bde -protectors -disable`) veya şifresi çözülmekte olan disk süresiz "Sağlıklı" görünüyordu. Yöntem, koruma durumu ve dönüştürme durumu birlikte değerlendirilir; nedenler ("BitLocker koruması askıya alınmış veya kapalı: C:", "BitLocker şifrelemesi tamamlanmamış: D: (şifre çözülüyor)") ajan, sunucu ve konsolda gösterilir. Konsoldaki BitLocker tablosuna *Koruma* sütunu eklendi.
+- Eski BitLocker önbelleği taze WMI sonucunu eziyordu: yönetici veya SYSTEM olarak okunan gerçek "şifresiz" sonuç, önbellekteki eski XTS-AES-256 değeriyle değiştiriliyordu. Önbellek artık yalnızca okunamayan diskler için kullanılır, 7 günden eskiyse yok sayılır ve SYSTEM görevi oturum açılışına ek olarak saatlik ve kilit açılışında yenilenir.
+- Okunamayan BitLocker durumu "şifresiz" olarak raporlanıyordu; artık "BitLocker bilgisi okunamadı" nedeni gösterilir.
+- `%PROGRAMDATA%\BerTool` klasörü kurulumda kilitlenir (SYSTEM/Administrators tam yetki, Users okuma). Önceden standart kullanıcı bu klasöre sahte bir BitLocker önbelleği bırakabiliyordu; önbellekteki sağlık bayrağı da artık dosyadan alınmaz, yeniden hesaplanır.
+- AD kesintisi sırasında yerel yönetici şifresine yapılan hatalı denemeler hesap kilidine sayılmıyordu.
+- AD girişi istek iş parçacığını engelliyordu (zaman aşımı 60 sn'ye kadar); AD yavaşken eşzamanlı girişler sunucunun iş parçacığı havuzunu tüketip ajan raporlarını bekletebiliyordu.
+- AD `objectSid` değeri bazı SID'lerde metin olarak okunuyor, yönetici grubu birincil grup olan kullanıcının yetkisi doğrulanamıyordu.
+
+### Sunucu
+- Elektrik kesintisinde yarım kalan `server.json` sunucunun hiç açılmamasına yol açabiliyordu. Dosya artık diske zorlanarak yazılır, önceki sağlam sürüm `server.json.bak` olarak saklanır; okunamayan dosya `server.json.bozuk-<zaman>` olarak ayrılıp yedekten geri yüklenir. Yarım kalmış geçici dosyalar açılışta temizlenir.
+- DHCP ile IP adresi değişen sunucuya yeni adresle erişen ajanlar ve konsol, sunucu yeniden başlatılana kadar "Geçersiz ana bilgisayar adı" (400) alıyordu.
+- Ürün değerlendirmesi, beklenen servisi listedeki ilk zayıf eşleşmeyle buluyordu: görünen adında beklenen adı içeren başka (çoğu zaman durmuş) bir servis alfabetik olarak önce geldiğinde ürün, asıl servis çalışırken "Çalışmıyor" görünüyordu. Eşleşme artık birebir ad → birebir görünen ad → biçim farkı → içerme sırasıyla ve aynı düzeyde çalışan servis tercih edilerek yapılır.
+- AD zaman aşımı veya yerel yedek giriş ayarını değiştirmek AD ile giriş yapan yöneticinin oturumunu kapatıyordu; bu ayarlar artık oturum parmak izine dahil değildir.
+- Yapılandırma dosyasıyla şifresiz LDAP'a ayarlanmış sunucuda AD konsoldan kapatılamıyordu.
+- CSV başlıkları saat dilimini belirtir (ör. "Son Görülme (UTC+03:00)") ve "Ajan Anahtarı" sütunu eklendi.
+- Başlangıç logu gerçek dinleme adreslerini yazar (Kestrel uç noktası kullanan kurulumlarda yanlış adres yazılıyordu).
+
+### Yönetim konsolu
+- Arama kutusu kelimeler arasındaki boşluğu siliyor ("Dell Latitude" → "DellLatitude") ve yanıt geldiği anda basılan tuşu yutuyordu.
+- Tarayıcı site verisini engellediğinde (kurumsal ilke) konsol hiç açılmıyor, sayfa boş kalıyordu.
+- AD ayarını kaydetmek oturumu açıklama yapmadan kapatabiliyor, yerel yedek giriş kapatılırsa hatalı ayar herkesi konsolun dışında bırakabiliyordu. Artık oturumu kapatacak değişiklik önceden onaylatılır ve yedek giriş, AD bağlantı testi başarılı olmadan kapatılamaz.
+- Filtre veya sayfa hızlı değiştirildiğinde eski sonuç yeni filtrelerin altında görünüyordu; silinen ürün seçiliyken tablo boş kalıyordu.
+- "x dakika önce" metinleri tarayıcı saatine göre hesaplanıyordu; artık sunucu saatine göre.
+- Pencereler klavye ve ekran okuyucu ile kullanılabilir: odak pencereye taşınır, Tab pencere içinde kalır, kapanınca açan düğmeye döner. Ürün formu, metin seçerken fare pencere dışında bırakılınca veya Esc ile yazılanlar kaybolarak kapanıyordu; kaydedilmemiş değişiklik varsa onay istenir. Servis aramasında Esc artık yalnızca aramayı temizler.
+- Sayfalama: sayfa boyutu (25/50/100, hatırlanır), ilk/son sayfa düğmeleri ve "Sayfa x / y". Dar ekranlarda makine adına tıklayarak detay açılır (eskiden "Detay" düğmesi yatay kaydırmanın dışında kalıyordu).
+- Anahtar yenileme ayarlar yüklenemediğinde başarılı olduğu halde "üretilemedi" diyordu; kopyalama başarısız olsa da "kopyalandı" deniyordu; süresi dolmuş oturumda bazı işlemler iki hata bildirimi gösteriyordu; otomatik yenileme kapalıyken sekmeye dönünce liste yenileniyordu.
+- Konsol yerel adresten açıldığında ajan yapılandırma örneğinin diğer makinelerde çalışmayacağı belirtilir. Açık temada küçük metin kontrastı artırıldı; sayılar binlik ayraçla gösterilir.
+
+### Tray ajanı
+- WMI askıda kalırsa durum yenilemesi kalıcı olarak kilitleniyor, rapor zamanlayıcısı eski anlık görüntüyü taze zaman damgasıyla göndermeye devam ediyordu. WMI sorgularına 20 sn, durum denetimine 2 dk zaman aşımı eklendi; 5 dakikadan eski durum raporlanmaz.
+- Sistem saati geri alındığında (ör. saat bir gün ilerideyken açılıp sonra senkronize olan makine) ajan bir gün boyunca rapor göndermiyor ve çevrimdışı görünüyordu.
+- Hata yer tutucusu (boş servis listesi) sunucuya raporlanıp tüm ürünleri "Bulunamadı" gösteriyordu.
+- Ajan açılır açılmaz, henüz kontrol yapmadan kırmızı "Güvende değilsiniz" gösteriyordu; ilk kontrol sürerken gri "kontrol ediliyor" simgesi gösterilir.
+- Durum penceresi risk nedenlerini gösterir; servis satırının üzerine gelince hangi servisin bulunamadığı/çalışmadığı görünür; BitLocker satırında koruma ve şifreleme durumu yazar. Liste yenilenirken kaydırma konumu korunur. Küçük ekranlarda pencerenin başlık çubuğu ekran dışına taşıyordu.
+- *Sunucuya Raporla* önce durumu yeniler (45 sn'ye kadar eski veri gönderiliyordu); *Durumu Yenile* zaten süren yenilemeyi bildirir.
+- taskkill veya kurulumun yeniden başlatma yöneticisi pencereyi kapattığında uygulama çalışmaya devam ediyor, tray simgesine tıklamak hiçbir şey yapmıyordu; artık uygulama düzgünce kapanır.
+- Hızlı kullanıcı değiştirme veya RDP oturumunda konsol oturumundaki başka kullanıcı raporlanıyordu.
+- `agent-settings.json` yorum satırı veya sondaki virgül içerdiğinde tamamen yok sayılıyor, raporlama sessizce kapanıyordu.
+
+### İstemci kurulumu
+- Temiz kurulumda ajan, `/SERVERURL` ve `/APIKEY` ile verilen ayar henüz yazılmadan başlatılıyordu ve bir sonraki oturuma kadar rapor göndermiyordu. Ayarlar artık dosyalar kopyalanmadan önce yazılır.
+- Hatalı parametreler kurulum bittikten sonra denetleniyordu: kurulum "başarılı" (çıkış kodu 0) bitiyor ama ayar yazılmıyordu, sessiz kurulumda görünmez bir hata penceresi kurulumu sonsuza kadar bekletebiliyordu. Parametreler artık kurulumdan önce doğrulanır; hata durumunda kurulum hiçbir şey değiştirmeden çıkış kodu 7 ile durur ve hata `/LOG` dosyasına yazılır. `/AGENTSETTINGSFILE` içeriği de denetlenir.
+- SCCM/Intune/BigFix gibi araçlar kurulumu SYSTEM olarak çalıştırdığında ajan oturum 0'da görünmez bir kopya olarak başlıyordu; artık başlatılmaz, kullanıcılar oturum açtığında başlar.
+
+### Diğer
+- `build-installer.cmd`, winget'in kullanıcı bazlı kurduğu Inno Setup'ı da bulur.
+- Birim testleri 93'ten 108'e çıktı; UC-10 senaryosu geçiş süreli anahtar yenilemeyi doğrular.
+
 ## 1.5.0 — 13 Kasım 2026
 
 ### Doğrulama

@@ -7,12 +7,12 @@
 <p align="center"><a href="https://berkayatag.github.io/BerTool/"><strong>🌐 Tanıtım sayfası: berkayatag.github.io/BerTool</strong></a></p>
 
 <p align="center">
-<a href="https://github.com/BerkayAtag/BerTool/releases/tag/v1.5.0">İndir (1.5.0)</a> ·
+<a href="https://github.com/BerkayAtag/BerTool/releases/tag/v1.6.0">İndir (1.6.0)</a> ·
 <a href="#hızlı-kurulum">Hızlı kurulum</a> ·
 <a href="CHANGELOG.md">Değişiklikler</a>
 </p>
 
-<p align="center">1.5.0 · Windows x64 · .NET 8 (self-contained) · MIT · Berkay Atağ</p>
+<p align="center">1.6.0 · Windows x64 · .NET 8 (self-contained) · MIT · Berkay Atağ</p>
 
 ![BerTool yönetim konsolu — sentetik demo verisi](docs/screenshots/dashboard.png)
 
@@ -25,12 +25,12 @@ Tüm arayüz, log ve dokümantasyon Türkçedir.
 
 ## Hızlı kurulum
 
-[Releases](https://github.com/BerkayAtag/BerTool/releases/tag/v1.5.0) sayfasından iki kurulum dosyasını indirin. Her ikisi de tıkla-kur şeklindedir: çift tıklayın, **Kur**'a basın, **Bitir**. Hedef makinede .NET gerekmez.
+[Releases](https://github.com/BerkayAtag/BerTool/releases/tag/v1.6.0) sayfasından iki kurulum dosyasını indirin. Her ikisi de tıkla-kur şeklindedir: çift tıklayın, **Kur**'a basın, **Bitir**. Hedef makinede .NET gerekmez.
 
 | Dosya | Ne kurar | Yetki |
 | --- | --- | --- |
-| `BerTool.Server.Setup-1.5.0.exe` | Sunucu ve yönetim konsolu (`http://127.0.0.1:5081`) | Standart kullanıcı |
-| `BerTool.Client.Setup-1.5.0.exe` | Windows tray ajanı | Yönetici |
+| `BerTool.Server.Setup-1.6.0.exe` | Sunucu ve yönetim konsolu (`http://127.0.0.1:5081`) | Standart kullanıcı |
+| `BerTool.Client.Setup-1.6.0.exe` | Windows tray ajanı | Yönetici |
 | `SHA256SUMS.txt` | Dosya bütünlüğü özetleri | — |
 | `e2e-results.json` | Bu kurulum dosyalarıyla çalıştırılan uçtan uca senaryo sonuçları | — |
 
@@ -38,12 +38,12 @@ Tüm arayüz, log ve dokümantasyon Türkçedir.
 2. **İstemci:** sunucu adresi ve anahtarla sessiz dağıtın:
 
    ```cmd
-   BerTool.Client.Setup-1.5.0.exe /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /SERVERURL="https://bertool.example.com" /APIKEY="AJAN-API-ANAHTARI"
+   BerTool.Client.Setup-1.6.0.exe /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /SERVERURL="https://bertool.example.com" /APIKEY="AJAN-API-ANAHTARI"
    ```
 
    Parametresiz çift tıklandığında ajan yerel modda çalışır (yalnızca tray durumu).
 
-Programlar ve Özellikler (`appwiz.cpl`) içinde her iki ürün de kırmızı BerTool simgesi ve **Berkay Atağ** yayıncı adıyla görünür. Yayınlanan 1.5.0 kurulum dosyaları henüz Authenticode ile imzalı değildir; Windows SmartScreen uyarısında *Ek bilgi → Yine de çalıştır* seçin. Derleme hattı imzalamaya hazırdır; ayrıntılar [Kod imzalama](#kod-imzalama) bölümündedir.
+Programlar ve Özellikler (`appwiz.cpl`) içinde her iki ürün de kırmızı BerTool simgesi ve **Berkay Atağ** yayıncı adıyla görünür. Yayınlanan 1.6.0 kurulum dosyaları henüz Authenticode ile imzalı değildir; Windows SmartScreen uyarısında *Ek bilgi → Yine de çalıştır* seçin. Derleme hattı imzalamaya hazırdır; ayrıntılar [Kod imzalama](#kod-imzalama) bölümündedir.
 
 > **Akıllı Uygulama Denetimi (Smart App Control):** Bu özellik açık olan Windows 11 makinelerinde imzasız uygulamalar, SmartScreen uyarısından farklı olarak doğrudan engellenebilir. Bu makinelerde BerTool'u çalıştırmak için kurulum dosyalarının güvenilir bir kod imzalama sertifikasıyla imzalanması gerekir.
 
@@ -57,7 +57,21 @@ Programlar ve Özellikler (`appwiz.cpl`) içinde her iki ürün de kırmızı Be
 
 Ekran görüntülerindeki makineler ve kullanıcılar sentetik test verisidir.
 
-## 1.5.0 ile gelenler
+## 1.6.0 ile gelenler
+
+Kapsamlı hata düzeltme sürümü: sunucu, konsol, tray ajanı ve kurulum baştan sona incelendi.
+
+- **Anahtar yenileme filoyu koparmıyor:** yeni ajan API anahtarı üretildiğinde eski anahtar seçilebilir bir geçiş süresi (varsayılan 7 gün) boyunca geçerli kalır. Hâlâ eski anahtarı kullanan makineler listede "eski anahtar" olarak işaretlenir, ayarlar ekranında sayıları görünür; eski anahtar istendiğinde hemen iptal edilir. Anahtar sızdıysa geçiş süresi kapatılarak eski anahtar anında geçersiz kılınır.
+- **BitLocker denetimi sıkılaştı:** koruması askıya alınmış veya şifresi çözülmekte olan disk artık "Sağlıklı" görünmez; eski önbellek gerçek WMI sonucunu ezmez, okunamayan durum "şifresiz" diye raporlanmaz. Önbellek saatlik yenilenir, `%PROGRAMDATA%\BerTool` klasörü kurulumda kilitlenir.
+- **Hafif ağ ölçümü:** internet hızı 2 saatte bir, en fazla 8 MB ile arka planda ölçülür (eskiden 10 dakikada 16 MB: makine başına günde ~2,3 GB); veri diske yazılmaz, durum yenilemesi beklemez, kimlik doğrulamalı proxy desteklenir.
+- **Dayanıklı sunucu:** `server.json` diske zorlanarak yazılır ve yedeklenir; elektrik kesintisinde bozulursa yedekten açılır. DHCP ile değişen IP adresi yeniden başlatma gerektirmez. AD girişi istek iş parçacığını bloklamaz.
+- **Konsol:** arama kutusu boşlukları ve tuşları yutmaz; sayfa boyutu ve ilk/son sayfa; mobilde makine adından detay; klavye ve ekran okuyucu dostu pencereler; kaydedilmemiş form korunur; AD ayarı kimseyi konsol dışında bırakamaz (yerel yedek giriş, bağlantı testi başarılı olmadan kapatılamaz).
+- **Tray ajanı:** WMI askıda kalsa da kilitlenmez ve eski durumu "güncel" diye raporlamaz; saat geri alınınca raporlama durmaz; durum penceresi risk nedenlerini ve eksik servisi gösterir; ilk kontrol sürerken gri "kontrol ediliyor" simgesi.
+- **İstemci kurulumu:** `/SERVERURL` ile verilen ayar ajan başlamadan yazılır (eskiden ilk oturumda rapor gitmiyordu); hatalı parametrede kurulum çıkış kodu 7 ile durur ve sessiz kurulumda takılmaz; SYSTEM olarak yapılan dağıtımda görünmez ajan kopyası başlatılmaz.
+
+Tüm liste: [CHANGELOG.md](CHANGELOG.md).
+
+### 1.5.0
 
 - **Uçtan uca doğrulama:** 17 kullanım senaryosu ([docs/USE-CASES.md](docs/USE-CASES.md)) her sürümde temiz bir Windows'ta, kurulu sunucu ve **gerçek tray ajanıyla** çalıştırılır; sonuç sürümde `e2e-results.json` olarak yayınlanır.
 - **Sunucudaki değişiklikler ajana hemen yansır:** ajan konsolda ayarlanan rapor aralığını birebir uygular (30 sn ayarı eskiden 45 sn, 60 sn ayarı 90 sn olarak uygulanıyordu). Ürün tanımı olmasa da servis anlık görüntüsü raporlanır; sonradan eklenen ürün ajanı beklemeden sunucuda doğru değerlendirilir.
@@ -67,8 +81,6 @@ Ekran görüntülerindeki makineler ve kullanıcılar sentetik test verisidir.
 - **Konsol:** Türkçe karakterden bağımsız arama (istanbul ↔ İSTANBUL, ı/i, ş/s); BitLocker riski makine listesinde görünür; CSV oturum düşmüşse konsoldan çıkmadan uyarır; rapor geçmişinin tamamı nedenleriyle gösterilir.
 - **Ajan:** Başlat menüsü kısayolu ve ikinci başlatma durum penceresini açar; ilk IP adresi makinenin asıl ağ adresidir (sanal anahtar değil); internet hızı ilk yanıt süresi düşülerek ölçülür; ölçüm adresi engelliyse 45 sn'lik döngü bekletilmez.
 - **Sunucu:** farklı çalışma klasöründen başlatıldığında da ayarları ve konsolu bulur; `ASPNETCORE_URLS` artık dikkate alınır; çevrimdışı eşiği rapor aralığından kısa olamaz.
-
-Tüm liste: [CHANGELOG.md](CHANGELOG.md).
 
 ### 1.4.0
 
@@ -235,11 +247,11 @@ Konsoldan rapor aralığı, çevrimdışı eşiği veya ürün tanımı değişt
 Cihaz **Sağlıklı** kabul edilir ancak ve ancak:
 
 - Etkin tüm ürün tanımlarındaki servis kontrolleri başarılıysa,
-- BitLocker uygulanabilir bir cihazsa tüm sabit disklerde yöntem `XTS-AES-256` ise.
+- BitLocker uygulanabilir bir cihazsa tüm sabit disklerde yöntem `XTS-AES-256`, BitLocker koruması açık ve şifreleme tamamlanmış ise.
 
 Aksi halde **Riskli** olur. Ağ hızı ve gecikme bilgilendirme amaçlıdır; genel durumu etkilemez.
 
-Servis adları ve görünen adlar büyük/küçük harf duyarsız karşılaştırılır; noktalama ve boşluk farkları normalize edilir. Ürün tanımındaki eşleşme modu **Tümü çalışmalı** veya **En az biri çalışmalı** olabilir. Servis bulunamazsa **Bulunamadı**, bulunup çalışmıyorsa **Çalışmıyor** gösterilir.
+Servis adları ve görünen adlar büyük/küçük harf duyarsız karşılaştırılır; noktalama ve boşluk farkları normalize edilir. Eşleşme en güçlüden en zayıfa aranır: birebir servis adı, birebir görünen ad, noktalama/boşluk farkı gözetmeyen eşitlik, en son (8+ karakterli adlarda) içerme; aynı düzeydeki adaylar arasında çalışan servis tercih edilir. Ürün tanımındaki eşleşme modu **Tümü çalışmalı** veya **En az biri çalışmalı** olabilir. Servis bulunamazsa **Bulunamadı**, bulunup çalışmıyorsa **Çalışmıyor** gösterilir.
 
 #### Varsayılan Ürünler
 
@@ -257,26 +269,29 @@ Bu liste yönetim konsolundaki **Ürün Tanımları** ekranından değiştirileb
 ### BitLocker
 
 - Yalnızca `DriveType.Fixed` sürücüler kontrol edilir.
-- Önce WMI (`Win32_EncryptableVolume`) okunur.
-- WMI `N/A` / `Unknown` dönerse ve süreç yönetici ise `manage-bde -status` fallback'i kullanılır (5 saniye zaman aşımı).
-- Standart kullanıcı oturumunda `manage-bde` çalıştırılmaz; `%PROGRAMDATA%\BerTool\bitlocker-cache.json` cache'i kullanılır.
-- Tek sağlıklı yöntem `XTS-AES-256`'dır. `AES-CBC-*`, donanım şifreleme, `N/A` ve `Unknown` risklidir.
+- Önce WMI (`Win32_EncryptableVolume`) okunur: şifreleme yöntemi (`GetEncryptionMethod`), koruma durumu (`GetProtectionStatus`) ve dönüştürme durumu (`GetConversionStatus`). WMI sorguları 20 saniye zaman aşımına sahiptir.
+- WMI `N/A` / `Unknown` dönerse ve süreç yönetici ise `manage-bde -status` fallback'i kullanılır (5 saniye zaman aşımı; İngilizce ve Türkçe çıktı ayrıştırılır).
+- Standart kullanıcı oturumunda `manage-bde` çalıştırılmaz; okunamayan diskler için `%PROGRAMDATA%\BerTool\bitlocker-cache.json` cache'i kullanılır. Doğrudan okunan sonuç (örneğin gerçek "şifresiz") cache'le ezilmez. 7 günden eski cache kullanılmaz.
+- Sağlıklı disk: yöntem `XTS-AES-256` **ve** koruma açık **ve** şifreleme tamamlanmış. `AES-CBC-*`, donanım şifreleme ve `N/A` (şifresiz) "XTS-AES-256 dışındaki şifreleme" riskidir; koruması askıya alınmış (`Suspend-BitLocker`) disk "BitLocker koruması askıya alınmış veya kapalı", şifrelenmekte veya şifresi çözülmekte olan disk "BitLocker şifrelemesi tamamlanmamış" riskidir; okunamayan disk "BitLocker bilgisi okunamadı" olarak raporlanır.
+- Koruma ve dönüştürme bilgisini göndermeyen eski ajanlar (1.5.0 ve öncesi) yalnızca yönteme göre değerlendirilir.
+- Sunucu BitLocker riskini raporlanan birimlerden kendisi hesaplar; ajanın kendi risk metnine ve sağlık bayrağına güvenmez.
 - Model `VMware` içeriyorsa BitLocker kontrolü devre dışıdır.
 
 Cache şu durumlarda güncellenir:
 
 - Kurulum sırasında (yönetici),
-- `BerTool BitLocker Cache` zamanlanmış görevi ile kullanıcı oturum açtığında (SYSTEM),
+- `BerTool BitLocker Cache` zamanlanmış görevi ile (SYSTEM): kullanıcı oturum açtığında, oturum kilidi açıldığında ve saatte bir,
 - Elle `BerTool.TrayAgent.exe --update-bitlocker-cache` çalıştırıldığında.
 
-Cache yazımı geçici dosya + atomik taşıma ile yapılır. Klasör izinleri SYSTEM/Administrators tam, standart kullanıcılar okuyabilir olacak şekilde sıkılaştırılır.
+Cache yazımı geçici dosya + atomik taşıma ile yapılır. `%PROGRAMDATA%\BerTool` klasörü kurulumda ve her cache yazımında SYSTEM/Administrators tam, standart kullanıcılar yalnızca okuyabilir olacak şekilde kilitlenir. Cache'teki sağlık bayrağı kullanılmaz, kayıtlı değerlerden yeniden hesaplanır.
 
 ### Ağ Kalitesi
 
 - Gateway'i olan, loopback olmayan ve IPv4 adresi bulunan adaptörler tercih edilir.
 - **Network Hızı** adaptör link speed değeridir; internet gerektirmez.
-- **İnternet Hızı** `download.windowsupdate.com` üzerinden ilk 16 MB indirilerek ölçülür. Önce HTTP, sonra HTTPS denenir; her deneme 15 saniye zaman aşımına sahiptir.
-- Başarılı ölçüm **10 dakika** cache'lenir. Başarısız ölçüm cache'lenmez.
+- **İnternet Hızı** `download.windowsupdate.com` üzerinden en fazla 8 MB indirilerek ölçülür; veri diske yazılmaz. Önce HTTP, sonra HTTPS denenir; her deneme 15 saniye zaman aşımına sahiptir. Kimlik doğrulamalı kurumsal proxy'de oturum kimliği kullanılır.
+- Ölçüm arka planda yapılır; 45 saniyelik durum yenilemesi ölçümü beklemez, sonuç hazır olunca bir sonraki yenilemede gösterilir.
+- Başarılı ölçüm **2 saat** cache'lenir (sürekli açık makinede günde ~96 MB). Başarısız ölçüm 5 dakika boyunca yeniden denenmez.
 - Renk eşikleri: `> 10 Mbps` iyi, `5-10 Mbps` uyarı, `< 5 Mbps` kritik.
 
 ## Setup Dosyalarını Üretme
@@ -340,11 +355,11 @@ dotnet publish "src\BerTool.Server\BerTool.Server.csproj" -c Release -r win-x64 
 Kurulum parametreleri:
 
 ```cmd
-BerTool.Server.Setup-1.5.0.exe /PORT=5081 /BIND=127.0.0.1
-BerTool.Server.Setup-1.5.0.exe /URLS="https://0.0.0.0:5443"
-BerTool.Server.Setup-1.5.0.exe /DATADIR="C:\BerToolData"
-BerTool.Server.Setup-1.5.0.exe /FORCECONFIG=1
-BerTool.Server.Setup-1.5.0.exe /SILENT
+BerTool.Server.Setup-1.6.0.exe /PORT=5081 /BIND=127.0.0.1
+BerTool.Server.Setup-1.6.0.exe /URLS="https://0.0.0.0:5443"
+BerTool.Server.Setup-1.6.0.exe /DATADIR="C:\BerToolData"
+BerTool.Server.Setup-1.6.0.exe /FORCECONFIG=1
+BerTool.Server.Setup-1.6.0.exe /SILENT
 ```
 
 `/FORCECONFIG=1` verilmezse mevcut `appsettings.json`,
@@ -356,7 +371,7 @@ yönetildiği için güncelleme sırasında ayrıca parametre gerekmez.
 Eski portable (ZIP) kurulumdan geçişte veri dizinini açıkça verin:
 
 ```cmd
-BerTool.Server.Setup-1.5.0.exe /DATADIR="C:\Eski\Sunucu\data" /FORCECONFIG=1
+BerTool.Server.Setup-1.6.0.exe /DATADIR="C:\Eski\Sunucu\data" /FORCECONFIG=1
 ```
 
 Yerel olmayan bir `BIND` adresi verildiğinde kurulum varsayılan olarak
@@ -510,11 +525,13 @@ Notlar:
 ```text
 data/
   server.json          Yönetici özeti, ürünler, ayarlar, AD ayarları (parola şifreli), oturum sürümü
+  server.json.bak      server.json'ın bir önceki sağlam sürümü (otomatik)
   machines/<id>.json   Makine özeti + rapor geçmişi
   keys/                ASP.NET Core Data Protection anahtarları
   bootstrap-credentials.txt  (yalnızca ilk kurulumda)
 ```
 
+- `server.json` diske zorlanarak ve atomik olarak yazılır. Dosya okunamazsa (ör. elektrik kesintisi) sunucu `server.json.bak` ile açılır, okunamayan dosyayı `server.json.bozuk-<zaman>` olarak saklar ve loga uyarı yazar.
 - Yedek alırken sunucuyu durdurun veya tüm dosyaları tutarlı bir anlık görüntüden kopyalayın.
 - `keys/` klasörünü de yedekleyin; aksi halde mevcut yönetici oturumları geçersiz olur.
 - Veri klasörünü yalnızca sunucu servis hesabı ve yöneticilerin yazabildiği bir konuma koyun.
@@ -526,9 +543,10 @@ data/
 - **Filtreler:** makine/kullanıcı/IP/model/risk nedeni arama, ürün seçimi, ürün durumu (sorunlu/sağlıklı), sayfalama.
 - **Makine Detayı:** donanım, IP'ler, ağ kalitesi, risk nedenleri, ürün durumları, tüm Windows servisleri (aranabilir), rapor geçmişi.
 - **Ürün Tanımları:** ürün adı, servis listesi, eşleşme modu, sıralama, aktiflik; ekleme/düzenleme/silme.
-- **Sunucu Ayarları:** rapor aralığı (30-86400 sn), çevrimdışı eşiği (1-1440 dk), geçmiş limiti (5-500); değişiklikler ajanlara en geç 45 saniyede ulaşır.
+- **Sunucu Ayarları:** rapor aralığı (30-86400 sn), çevrimdışı eşiği (1-2880 dk, rapor aralığından en az 1 dk uzun), geçmiş limiti (5-500); değişiklikler ajanlara en geç 45 saniyede ulaşır.
 - **Active Directory:** LDAPS/StartTLS bağlantı durumu, düzenlenebilir AD formu, taslak bağlantı testi ve güvenlik uyarıları. Hizmet hesabı parolası yalnızca yazılabilir; istemciye geri gönderilmez. AD oturumunda yerel şifre formu gizlenir.
-- **Ajan API Anahtarı:** yenileme; eski anahtar anında geçersiz olur ve tüm ajanların ayarı güncellenmelidir.
+- **Ajan API Anahtarı:** yenileme. Varsayılan olarak eski anahtar **7 gün** daha geçerli kalır; bu sürede ajanların `agent-settings.json` dosyası yeni anahtarla güncellenir (ör. istemci kurulumunu `/SERVERURL` ve `/APIKEY` ile yeniden çalıştırarak). Hâlâ eski anahtarla raporlayan makineler listede ve detayda "eski anahtar" olarak işaretlenir, ayarlar ekranında sayıları ve bitiş zamanı görünür; **Eski anahtarı şimdi iptal et** ile süre beklenmeden kapatılır. Anahtar sızdıysa *Eski anahtar 7 gün daha geçerli kalsın* seçeneği kapatılır ve eski anahtar anında geçersiz olur. API: `POST /api/admin/agent-key/rotate` gövdesiz çağrılırsa eski anahtar hemen geçersiz olur (önceki sürümlerle uyumlu); `{"keepPreviousKey": true, "graceHours": 168}` ile geçiş süresi verilir (1-720 saat). `DELETE /api/admin/agent-key/previous` eski anahtarı iptal eder.
+- **Sayfalama:** sayfa başına 25/50/100 makine (tarayıcıda hatırlanır), ilk/önceki/sonraki/son sayfa.
 - **Şifre:** en az 12 karakter, en az bir harf ve bir rakam; değişiklikten sonra diğer oturumlar kapatılır. AD oturumunda yerel şifre değiştirilemez.
 - **CSV:** UTF-8 BOM ile indirilir; Excel'de Türkçe karakterler doğru görünür. Formül enjeksiyonu (`=`, `+`, `-`, `@`) etkisizleştirilir.
 
@@ -594,8 +612,10 @@ BerToolSetup.exe /AGENTSETTINGSFILE="C:\Temp\agent-settings.json"
 ```
 
 - `/SERVERURL` ve `/APIKEY` birlikte verilmelidir.
-- Yerel olmayan sunucular için `https://` zorunludur. `http://` yalnızca `127.0.0.1`, `localhost` veya `[::1]` için kabul edilir; aksi halde kurulum ayar yazmadan hata verir.
-- `/AGENTSETTINGSFILE` verilirse dosya `%PROGRAMDATA%\BerTool\agent-settings.json` olarak kopyalanır; içerik geçerli JSON olmalıdır ve dosyadaki `serverUrl` için de HTTPS kuralı uygulanır.
+- Yerel olmayan sunucular için `https://` zorunludur. `http://` yalnızca `127.0.0.1`, `localhost` veya `[::1]` için kabul edilir.
+- `/AGENTSETTINGSFILE` verilirse dosya `%PROGRAMDATA%\BerTool\agent-settings.json` olarak kopyalanır; içerik `serverUrl` ve `apiKey` alanlarını içeren bir JSON nesnesi olmalıdır ve dosyadaki `serverUrl` için de HTTPS kuralı uygulanır. Ajan dosyadaki yorum satırlarını ve sondaki virgülleri kabul eder.
+- Parametreler dosyalar kopyalanmadan önce doğrulanır. Hatalı parametrede kurulum **hiçbir şey değiştirmeden çıkış kodu 7** ile durur; sessiz kurulumda pencere açılmaz, hata `/LOG` dosyasına yazılır.
+- Ayar dosyası ajan başlamadan yazılır; temiz kurulumda ajan ilk açılışta sunucuya raporlar.
 - Parametre verilmezse mevcut `agent-settings.json` korunur; ajan yerel modda çalışır.
 - Yazılan dosyanın izinleri: SYSTEM ve Administrators tam yetki, Users yalnızca okuma. Kalıtım kaldırılır.
 - API anahtarı komut satırında süreç listesine/loglara yansıyabilir. Üretimde `/AGENTSETTINGSFILE` veya güvenli bir dağıtım aracı tercih edin.
@@ -612,6 +632,8 @@ BerToolSetup.exe /VERYSILENT /SERVERURL="https://bertool.example.com" /APIKEY="A
 ```
 
 > **Önemli:** Inno Setup `/S` ve `/quiet` parametrelerini desteklemez. Sessiz kurulum için `/SILENT` veya `/VERYSILENT` kullanın.
+
+**Dağıtım araçları (SCCM, Intune, BigFix):** Kurulum SYSTEM olarak çalıştığında ajan hemen başlatılmaz (oturum 0'da görünmez bir kopya oluşmasın diye); kullanıcılar oturum açtığında HKLM Run kaydıyla başlar. Güncelleme sırasında tüm oturumlardaki ajan kapatılır; kurulumu yapan kullanıcı dışındaki oturumlarda ajan bir sonraki oturum açılışında başlar.
 
 ### Kaldırma
 

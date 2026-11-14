@@ -338,9 +338,16 @@ app.MapAgentEndpoints();
 app.MapAdminEndpoints();
 
 app.Logger.LogInformation(
-    "BerTool sunucusu {Version} başlatılıyor. Veri dizini: {DataDirectory}. Arayüz: {Urls}",
+    "BerTool sunucusu {Version} başlatılıyor. Veri dizini: {DataDirectory}",
     serverVersion,
-    dataDirectory,
-    builder.Configuration[WebHostDefaults.ServerUrlsKey] ?? defaultUrl);
+    dataDirectory);
+
+// Gerçek dinleme adresleri (Urls, http_ports, Kestrel:Endpoints veya varsayılan)
+// ancak sunucu başladıktan sonra kesinleşir. Eskiden yalnızca "Urls" değeri
+// loglandığından Kestrel uç noktası kullanan kurulumlarda yanlış adres yazılıyordu.
+app.Lifetime.ApplicationStarted.Register(() =>
+    app.Logger.LogInformation(
+        "BerTool sunucusu dinliyor. Arayüz: {Urls}",
+        string.Join(", ", app.Urls)));
 
 app.Run();
