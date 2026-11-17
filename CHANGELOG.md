@@ -5,7 +5,7 @@
 Kapsamlı hata düzeltme sürümü. Sunucu, yönetim konsolu, tray ajanı ve istemci kurulumu baştan sona incelendi; bulunan hatalar düzeltildi, kullanımı zor iki özellik yeniden tasarlandı.
 
 ### Yeniden tasarlanan özellikler
-- **Ajan API anahtarı yenileme artık filoyu koparmıyor.** Eskiden yeni anahtar üretmek eski anahtarı anında geçersiz kılıyor, tüm ajanlar güncellenene kadar raporlama duruyordu. Artık eski anahtar seçilebilir bir geçiş süresi (varsayılan 7 gün) boyunca geçerli kalır; hâlâ eski anahtarı kullanan makineler listede ve detayda "eski anahtar" olarak işaretlenir, ayarlar ekranında sayıları ve bitiş zamanı görünür, "Eski anahtarı şimdi iptal et" ile süre beklenmeden kapatılabilir. Anahtar sızdıysa geçiş süresi kapatılıp eski anahtar hemen geçersiz kılınabilir. Gövdesiz API isteği (betikler) eski davranışı korur.
+- **Ajan API anahtarı yenileme artık filoyu koparmıyor.** Eskiden yeni anahtar üretmek eski anahtarı anında geçersiz kılıyor, tüm ajanlar güncellenene kadar raporlama duruyordu. Artık eski anahtar seçilebilir bir geçiş süresi (varsayılan 7 gün) boyunca geçerli kalır; hâlâ eski anahtarı kullanan makineler listede ve detayda "eski anahtar" olarak işaretlenir, ayarlar ekranında sayıları ve bitiş zamanı görünür, "Eski anahtarı şimdi iptal et" ile süre beklenmeden kapatılabilir. Geçiş süresi içinde anahtar tekrar yenilenirse (ör. yeni anahtar kopyalanmadan kaybolduysa) önceki anahtarlar kendi bitişlerine kadar geçerli kalır (en fazla 3). Anahtar sızdıysa geçiş süresi kapatılıp güncel ve önceki anahtarlar hemen geçersiz kılınabilir; konsol etkilenecek makine sayısını onaydan önce gösterir. Gövdesiz API isteği (betikler) eski davranışı korur; JSON olmayan gövde 415 döner.
 - **İnternet hızı ölçümü hafifletildi.** Her 10 dakikada 16 MB indiriliyordu (sürekli açık makine başına günde ~2,3 GB, uzak kullanıcılarda VPN üzerinden) ve ölçüm durum yenilemesini 30 sn'ye kadar bekletiyordu. Artık 2 saatte bir en fazla 8 MB ile arka planda ölçülür (günde ~96 MB), veri diske yazılmaz (antivirüsün her `.msu` dosyasını taraması da biter), kimlik doğrulamalı kurumsal proxy desteklenir.
 
 ### Güvenlik ve BitLocker
@@ -14,11 +14,12 @@ Kapsamlı hata düzeltme sürümü. Sunucu, yönetim konsolu, tray ajanı ve ist
 - Okunamayan BitLocker durumu "şifresiz" olarak raporlanıyordu; artık "BitLocker bilgisi okunamadı" nedeni gösterilir.
 - `%PROGRAMDATA%\BerTool` klasörü kurulumda kilitlenir (SYSTEM/Administrators tam yetki, Users okuma). Önceden standart kullanıcı bu klasöre sahte bir BitLocker önbelleği bırakabiliyordu; önbellekteki sağlık bayrağı da artık dosyadan alınmaz, yeniden hesaplanır.
 - AD kesintisi sırasında yerel yönetici şifresine yapılan hatalı denemeler hesap kilidine sayılmıyordu.
-- AD girişi istek iş parçacığını engelliyordu (zaman aşımı 60 sn'ye kadar); AD yavaşken eşzamanlı girişler sunucunun iş parçacığı havuzunu tüketip ajan raporlarını bekletebiliyordu.
+- AD girişi istek iş parçacığını engelliyordu (zaman aşımı 60 sn'ye kadar); AD yavaşken eşzamanlı girişler sunucunun iş parçacığı havuzunu tüketip ajan raporlarını bekletebiliyordu. Aynı anda en fazla 4 AD doğrulaması, havuz dışındaki ayrı iş parçacıklarında yapılır; sınır doluysa AD "kullanılamıyor" sayılır ve yerel yedek giriş (açıksa) denenir.
+- 1.5.0'da açılmış AD oturumları sunucu yükseltildiğinde düşmez (eski oturum parmak izi biçimi de kabul edilir).
 - AD `objectSid` değeri bazı SID'lerde metin olarak okunuyor, yönetici grubu birincil grup olan kullanıcının yetkisi doğrulanamıyordu.
 
 ### Sunucu
-- Elektrik kesintisinde yarım kalan `server.json` sunucunun hiç açılmamasına yol açabiliyordu. Dosya artık diske zorlanarak yazılır, önceki sağlam sürüm `server.json.bak` olarak saklanır; okunamayan dosya `server.json.bozuk-<zaman>` olarak ayrılıp yedekten geri yüklenir. Yarım kalmış geçici dosyalar açılışta temizlenir.
+- Elektrik kesintisinde yarım kalan `server.json` sunucunun hiç açılmamasına yol açabiliyordu. Dosya artık diske zorlanarak yazılır ve aynı içerik `server.json.bak` olarak da saklanır; okunamayan dosya `server.json.bozuk-<zaman>` olarak ayrılıp yedekten, son kaydedilen değişiklik kaybolmadan geri yüklenir. Yarım kalmış geçici dosyalar açılışta temizlenir.
 - DHCP ile IP adresi değişen sunucuya yeni adresle erişen ajanlar ve konsol, sunucu yeniden başlatılana kadar "Geçersiz ana bilgisayar adı" (400) alıyordu.
 - Ürün değerlendirmesi, beklenen servisi listedeki ilk zayıf eşleşmeyle buluyordu: görünen adında beklenen adı içeren başka (çoğu zaman durmuş) bir servis alfabetik olarak önce geldiğinde ürün, asıl servis çalışırken "Çalışmıyor" görünüyordu. Eşleşme artık birebir ad → birebir görünen ad → biçim farkı → içerme sırasıyla ve aynı düzeyde çalışan servis tercih edilerek yapılır.
 - AD zaman aşımı veya yerel yedek giriş ayarını değiştirmek AD ile giriş yapan yöneticinin oturumunu kapatıyordu; bu ayarlar artık oturum parmak izine dahil değildir.
@@ -50,12 +51,13 @@ Kapsamlı hata düzeltme sürümü. Sunucu, yönetim konsolu, tray ajanı ve ist
 
 ### İstemci kurulumu
 - Temiz kurulumda ajan, `/SERVERURL` ve `/APIKEY` ile verilen ayar henüz yazılmadan başlatılıyordu ve bir sonraki oturuma kadar rapor göndermiyordu. Ayarlar artık dosyalar kopyalanmadan önce yazılır.
-- Hatalı parametreler kurulum bittikten sonra denetleniyordu: kurulum "başarılı" (çıkış kodu 0) bitiyor ama ayar yazılmıyordu, sessiz kurulumda görünmez bir hata penceresi kurulumu sonsuza kadar bekletebiliyordu. Parametreler artık kurulumdan önce doğrulanır; hata durumunda kurulum hiçbir şey değiştirmeden çıkış kodu 7 ile durur ve hata `/LOG` dosyasına yazılır. `/AGENTSETTINGSFILE` içeriği de denetlenir.
-- SCCM/Intune/BigFix gibi araçlar kurulumu SYSTEM olarak çalıştırdığında ajan oturum 0'da görünmez bir kopya olarak başlıyordu; artık başlatılmaz, kullanıcılar oturum açtığında başlar.
+- Hatalı parametreler kurulum bittikten sonra denetleniyordu: kurulum "başarılı" (çıkış kodu 0) bitiyor ama ayar yazılmıyordu, sessiz kurulumda görünmez bir hata penceresi kurulumu sonsuza kadar bekletebiliyordu. Parametreler artık kurulumdan önce doğrulanır; hata durumunda kurulum hiçbir şey değiştirmeden çıkış kodu 7 ile durur ve hata `/LOG` dosyasına yazılır (gözetimsiz dağıtımda pencere açılmaması için `/SUPPRESSMSGBOXES` gerekir). `/AGENTSETTINGSFILE` içeriği de denetlenir; UTF-8 ve UTF-16 dosyalar kabul edilir.
+- SCCM/Intune/BigFix gibi araçlar kurulumu SYSTEM olarak çalıştırdığında ajan oturum 0'da görünmez bir kopya olarak başlıyordu. Artık açık kullanıcı oturumlarının her birinde o oturumun kullanıcısı olarak başlatılır (`--start-in-user-sessions`); güncellemede kapatılan ajanlar hemen geri gelir.
 
 ### Diğer
 - `build-installer.cmd`, winget'in kullanıcı bazlı kurduğu Inno Setup'ı da bulur.
-- Birim testleri 93'ten 108'e çıktı; UC-10 senaryosu geçiş süreli anahtar yenilemeyi doğrular.
+- Birim testleri 93'ten 114'e çıktı; UC-10 senaryosu geçiş süreli ve üst üste anahtar yenilemeyi doğrular.
+- Sürüm adayı 86 ajanlı çapraz incelemeden geçirildi (5 alan, her bulgu 3 bağımsız doğrulayıcıyla); doğrulanan 24 bulgunun tamamı düzeltildi.
 
 ## 1.5.0 — 13 Kasım 2026
 

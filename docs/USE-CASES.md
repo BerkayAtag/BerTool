@@ -45,7 +45,7 @@ Başlat menüsü kısayolu, BitLocker görevi, kaldırmada ayarların korunması
 
 ## Ek doğrulamalar (1.6.0)
 
-- **Birim testleri:** 108 test (15 yeni regresyon testi): servis eşleştirme
+- **Birim testleri:** 114 test (21 yeni regresyon testi): servis eşleştirme
   önceliği, BitLocker koruma/dönüştürme kuralları, anahtar geçiş süresi ve
   iptali, bozuk `server.json`'ın yedekten kurtarılması, saat geri alındığında
   ajan raporlaması.

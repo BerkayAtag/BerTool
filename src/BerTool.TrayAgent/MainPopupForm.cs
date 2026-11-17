@@ -421,26 +421,65 @@ internal sealed class MainPopupForm : Form
         };
     }
 
+    private const int WmSysCommand = 0x0112;
+    private const int WmEndSession = 0x0016;
+    private const int ScClose = 0xF060;
+    private const long EndSessionCloseApp = 0x1;
+
+    // Kullanıcının X düğmesi / Alt+F4 ile başlattığı kapatma. Form.CloseReason
+    // iptal edilen kapatmadan sonra sıfırlanmadığı için güvenilmez: kullanıcı
+    // pencereyi bir kez X ile gizledikten sonra taskkill'in gönderdiği WM_CLOSE
+    // da "kullanıcı kapatması" sayılıp uygulama kapanmıyordu.
+    private bool _userCloseInProgress;
+
+    protected override void WndProc(ref Message m)
+    {
+        if (m.Msg == WmSysCommand && ((int)m.WParam & 0xFFF0) == ScClose)
+        {
+            // DefWindowProc WM_CLOSE'u bu çağrının içinde eşzamanlı gönderir.
+            _userCloseInProgress = true;
+            try
+            {
+                base.WndProc(ref m);
+            }
+            finally
+            {
+                _userCloseInProgress = false;
+            }
+
+            return;
+        }
+
+        if (m.Msg == WmEndSession &&
+            m.WParam != IntPtr.Zero &&
+            (m.LParam.ToInt64() & EndSessionCloseApp) != 0 &&
+            !AllowClose)
+        {
+            // Yeniden Başlatma Yöneticisi uygulamanın kapanmasını istiyor
+            // (ör. dosyaları güncelleyen bir kurulum); oturum kapanmıyor.
+            ExitRequested?.Invoke(this, EventArgs.Empty);
+        }
+
+        base.WndProc(ref m);
+    }
+
     protected override void OnFormClosing(FormClosingEventArgs e)
     {
-        if (!AllowClose && e.CloseReason == CloseReason.UserClosing)
+        if (AllowClose || e.CloseReason == CloseReason.WindowsShutDown)
         {
-            e.Cancel = true;
-            Hide();
+            base.OnFormClosing(e);
             return;
         }
 
-        if (!AllowClose && e.CloseReason != CloseReason.WindowsShutDown)
+        e.Cancel = true;
+        Hide();
+
+        if (!_userCloseInProgress)
         {
-            // taskkill (/F olmadan) veya kurulumun Yeniden Başlatma Yöneticisi
+            // taskkill (/F olmadan), Görev Yöneticisi veya başka bir araç
             // pencereyi kapatmak istediğinde uygulamanın tamamı kapanır.
-            e.Cancel = true;
-            Hide();
             ExitRequested?.Invoke(this, EventArgs.Empty);
-            return;
         }
-
-        base.OnFormClosing(e);
     }
 
     protected override bool ShowWithoutActivation => true;

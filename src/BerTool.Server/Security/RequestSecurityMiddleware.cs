@@ -77,7 +77,15 @@ internal sealed class HostValidationMiddleware
     // başlangıçta okunuyordu; DHCP ile IP adresi değişen sunucuya yeni adresle
     // erişen ajanlar ve konsol, sunucu yeniden başlatılana kadar 400 alıyordu.
     private volatile HashSet<string> _localAddresses = new(StringComparer.OrdinalIgnoreCase);
-    private long _localAddressesRefreshedTicks;
+
+    // Son yenileme zamanı Environment.TickCount64 (ms) ile tutulur; sistem
+    // saati geri alınsa da yenileme sınırı doğru çalışır.
+    private long _localAddressesRefreshedAtMs = long.MinValue / 2;
+
+    // Bir yenilemede görünmeyen adres hemen düşürülmez; ağ bağlantısının kısa
+    // süre kopması izinli adresi silip istekleri reddettirmesin.
+    private readonly Dictionary<string, int> _missedRefreshes = new(StringComparer.OrdinalIgnoreCase);
+    private const int MaxMissedRefreshes = 2;
 
     public HostValidationMiddleware(
         RequestDelegate next,
@@ -151,11 +159,16 @@ internal sealed class HostValidationMiddleware
         }
 
         // Bilinmeyen adres yeni alınmış bir yerel IP olabilir; sınırlı sıklıkla
-        // arayüz listesini yeniden oku.
-        if (IPAddress.TryParse(host, out _) && TryRefreshLocalAddresses() && _localAddresses.Contains(host))
+        // arayüz listesini yeniden oku. Küme, yenilemeyi bu istek yapmasa da
+        // (eşzamanlı başka bir istek yapmış olabilir) yeniden kontrol edilir.
+        if (IPAddress.TryParse(host, out _))
         {
-            await _next(context);
-            return;
+            TryRefreshLocalAddresses();
+            if (_localAddresses.Contains(host))
+            {
+                await _next(context);
+                return;
+            }
         }
 
         _logger.LogDebug("Geçersiz Host başlığı reddedildi: {Host}", host);
@@ -169,40 +182,66 @@ internal sealed class HostValidationMiddleware
             _allowedSuffixes.Any(suffix => host.EndsWith(suffix, StringComparison.OrdinalIgnoreCase));
     }
 
-    private bool TryRefreshLocalAddresses()
+    private void TryRefreshLocalAddresses()
     {
-        var now = DateTime.UtcNow.Ticks;
-        if (now - Interlocked.Read(ref _localAddressesRefreshedTicks) < LocalAddressRefreshInterval.Ticks)
+        var intervalMs = (long)LocalAddressRefreshInterval.TotalMilliseconds;
+        if (Environment.TickCount64 - Interlocked.Read(ref _localAddressesRefreshedAtMs) < intervalMs)
         {
-            return false;
+            return;
         }
 
         lock (_refreshSync)
         {
-            if (now - Interlocked.Read(ref _localAddressesRefreshedTicks) < LocalAddressRefreshInterval.Ticks)
+            if (Environment.TickCount64 - Interlocked.Read(ref _localAddressesRefreshedAtMs) < intervalMs)
             {
-                return false;
+                return;
             }
 
             RefreshLocalAddresses();
-            return true;
         }
     }
 
     private void RefreshLocalAddresses()
     {
-        var addresses = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var address in GetLocalAddresses())
+        lock (_refreshSync)
         {
-            var normalized = NormalizeHost(address);
-            if (normalized.Length > 0)
+            if (TryGetLocalAddresses(out var current) && current.Count > 0)
             {
-                addresses.Add(normalized);
-            }
-        }
+                var updated = new HashSet<string>(current, StringComparer.OrdinalIgnoreCase);
+                foreach (var address in current)
+                {
+                    _missedRefreshes.Remove(address);
+                }
 
-        _localAddresses = addresses;
-        Interlocked.Exchange(ref _localAddressesRefreshedTicks, DateTime.UtcNow.Ticks);
+                // Bu yenilemede görünmeyen eski adres, art arda birkaç yenilemede
+                // görünmeyene kadar izinli kalır.
+                foreach (var previous in _localAddresses)
+                {
+                    if (updated.Contains(previous))
+                    {
+                        continue;
+                    }
+
+                    var missed = _missedRefreshes.GetValueOrDefault(previous) + 1;
+                    if (missed < MaxMissedRefreshes)
+                    {
+                        _missedRefreshes[previous] = missed;
+                        updated.Add(previous);
+                    }
+                    else
+                    {
+                        _missedRefreshes.Remove(previous);
+                    }
+                }
+
+                // Küme, zaman damgasından önce atanır: damgayı taze gören istek
+                // yeni kümeyi okur.
+                _localAddresses = updated;
+            }
+
+            // Okuma başarısız veya boşsa mevcut küme korunur (küçültülmez).
+            Interlocked.Exchange(ref _localAddressesRefreshedAtMs, Environment.TickCount64);
+        }
     }
 
     private void AddAllowedHost(string? value)
@@ -228,13 +267,24 @@ internal sealed class HostValidationMiddleware
         return host;
     }
 
-    private static IEnumerable<string> GetLocalAddresses()
+    /// <returns>Arayüz listesi okunamadıysa false.</returns>
+    private static bool TryGetLocalAddresses(out List<string> addresses)
     {
-        var addresses = new List<string>();
-
+        addresses = new List<string>();
+        NetworkInterface[] interfaces;
         try
         {
-            foreach (var networkInterface in NetworkInterface.GetAllNetworkInterfaces())
+            interfaces = NetworkInterface.GetAllNetworkInterfaces();
+        }
+        catch
+        {
+            return false;
+        }
+
+        foreach (var networkInterface in interfaces)
+        {
+            // Tek bir arayüzün okunamaması listenin geri kalanını kesmez.
+            try
             {
                 if (networkInterface.OperationalStatus != OperationalStatus.Up)
                 {
@@ -245,17 +295,21 @@ internal sealed class HostValidationMiddleware
                 {
                     if (unicast.Address.AddressFamily is AddressFamily.InterNetwork or AddressFamily.InterNetworkV6)
                     {
-                        addresses.Add(unicast.Address.ToString());
+                        var normalized = NormalizeHost(unicast.Address.ToString());
+                        if (normalized.Length > 0)
+                        {
+                            addresses.Add(normalized);
+                        }
                     }
                 }
             }
-        }
-        catch
-        {
-            // Ağ arayüzleri okunamazsa yalnızca loopback ve makine adı kullanılır.
+            catch
+            {
+                // Bu arayüz atlanır.
+            }
         }
 
-        return addresses;
+        return true;
     }
 
     private static async Task RejectAsync(HttpContext context)

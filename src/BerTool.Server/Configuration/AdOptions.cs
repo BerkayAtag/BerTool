@@ -196,6 +196,36 @@ public sealed class AdOptions
         return Convert.ToHexString(hash)[..16];
     }
 
+    /// <summary>
+    /// 1.5.0 parmak izi biçimi (zaman aşımı ve yerel yedek giriş dahil). Yalnızca
+    /// güncellemeden önce açılmış AD oturumlarının sunucu 1.6.0'a yükseltilince
+    /// düşmemesi için kabul edilir; eşleşmesi kimlik ayarlarının değişmediğini
+    /// gösterir. 1.6.x sonrası kaldırılabilir.
+    /// </summary>
+    public string CreateLegacyFingerprint()
+    {
+        var passwordHash = Convert.ToHexString(
+            SHA256.HashData(Encoding.UTF8.GetBytes(BindPassword ?? string.Empty)));
+
+        var value = string.Join('|',
+            Enabled,
+            (Host ?? string.Empty).Trim().ToLowerInvariant(),
+            EffectivePort,
+            UseSsl,
+            UseStartTls,
+            IgnoreCertificateErrors,
+            AllowInsecureLdap,
+            (BaseDn ?? string.Empty).Trim().ToLowerInvariant(),
+            (BindDn ?? string.Empty).Trim().ToLowerInvariant(),
+            passwordHash,
+            (AdminGroup ?? string.Empty).Trim().ToLowerInvariant(),
+            AllowLocalFallback,
+            TimeoutSeconds);
+
+        var hash = SHA256.HashData(Encoding.UTF8.GetBytes(value));
+        return Convert.ToHexString(hash)[..16];
+    }
+
     public AdOptions Clone()
     {
         return new AdOptions

@@ -54,12 +54,22 @@ internal static class AgentEndpoints
 
             try
             {
-                var acknowledgement = await store.SaveReportAsync(normalized, cancellationToken, keyMatch);
+                // Eşleşme kayıt kilidi altında yeniden doğrulanır; ön kontrol ile
+                // kayıt arasında anahtar yenilenip eski anahtar iptal edilebilir.
+                var acknowledgement = await store.SaveReportAsync(
+                    normalized,
+                    cancellationToken,
+                    keyMatch,
+                    ReadApiKey(context));
                 return Results.Ok(acknowledgement);
             }
             catch (StoreValidationException exception)
             {
                 return Results.BadRequest(new ApiErrorDto { Message = exception.Message });
+            }
+            catch (StoreUnauthorizedException)
+            {
+                return Unauthorized();
             }
         });
 
@@ -113,19 +123,26 @@ internal static class AgentEndpoints
 
     private static AgentKeyMatch MatchApiKey(HttpContext context, ServerStore store)
     {
+        var apiKey = ReadApiKey(context);
+        return apiKey is null ? AgentKeyMatch.None : store.MatchAgentApiKey(apiKey);
+    }
+
+    /// <summary>Başlıktaki anahtarı biçim kontrolüyle okur; geçersizse null.</summary>
+    private static string? ReadApiKey(HttpContext context)
+    {
         var values = context.Request.Headers[ApiKeyHeader];
         if (values.Count != 1)
         {
-            return AgentKeyMatch.None;
+            return null;
         }
 
         var apiKey = values[0];
         if (string.IsNullOrWhiteSpace(apiKey) || apiKey.Length > MaxApiKeyLength)
         {
-            return AgentKeyMatch.None;
+            return null;
         }
 
-        return store.MatchAgentApiKey(apiKey.Trim());
+        return apiKey.Trim();
     }
 
     private static IResult Unauthorized()

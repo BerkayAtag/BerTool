@@ -78,11 +78,13 @@ Filename: "{app}\{#MyAppExeName}"; Parameters: "--register-bitlocker-task"; Stat
 ; Etkileşimli kurulumda durum penceresi açılır ki kullanıcı ajanın çalıştığını
 ; görsün; sessiz kurulumda yalnızca tray simgesi başlar.
 ; SCCM/Intune/BigFix gibi araçlar kurulumu SYSTEM olarak çalıştırır. Bu durumda
-; "asıl kullanıcı" da SYSTEM'dir; ajan oturum 0'da görünmez bir kopya olarak
-; başlıyor ve aynı makine kimliğiyle rapor gönderiyordu. SYSTEM kurulumunda ajan
-; başlatılmaz; kullanıcılar oturum açtığında HKLM Run kaydıyla başlar.
+; "asıl kullanıcı" da SYSTEM'dir; runasoriginaluser ajanı oturum 0'da görünmez bir
+; kopya olarak başlatıyordu. SYSTEM kurulumunda ajan, açık kullanıcı oturumlarının
+; her birinde o oturumun kullanıcısı olarak başlatılır (--start-in-user-sessions);
+; güncelleme öncesinde kapatılan ajanlar böylece hemen geri gelir.
 Filename: "{app}\{#MyAppExeName}"; Parameters: "--show"; Flags: nowait runasoriginaluser; Check: (not WizardSilent) and (not IsSystemAccount)
 Filename: "{app}\{#MyAppExeName}"; Flags: nowait runasoriginaluser; Check: WizardSilent and (not IsSystemAccount)
+Filename: "{app}\{#MyAppExeName}"; Parameters: "--start-in-user-sessions"; StatusMsg: "BerTool kullanıcı oturumlarında başlatılıyor..."; Flags: runhidden waituntilterminated; Check: IsSystemAccount
 
 [UninstallRun]
 Filename: "{sys}\schtasks.exe"; Parameters: "/Delete /TN ""{#MyAppTaskName}"" /F"; Flags: runhidden; RunOnceId: "DeleteBitLockerCacheTask"
@@ -403,18 +405,34 @@ begin
     HardenAgentSettingsFile(SettingsPath);
 end;
 
+// Ayar dosyasını yalnızca doğrulama için okur. UTF-8 (BOM'lu/BOM'suz) ve
+// UTF-16 (Windows PowerShell 5.1'in Out-File varsayılanı) desteklenir;
+// 1.5.0 UTF-16 dosyaları kabul ediyordu ve ajan da (BOM'dan) okuyabiliyor.
+// Alan adları ve adres ASCII olduğundan UTF-16'da sıfır baytları atmak
+// denetim için yeterlidir; dosya ajana olduğu gibi kopyalanır.
 function ReadTextFile(const FileName: string; var Content: string): Boolean;
 var
-  Lines: TArrayOfString;
-  LineIndex: Integer;
+  Raw: AnsiString;
 begin
   Content := '';
-  Result := LoadStringsFromFile(FileName, Lines);
+  Result := LoadStringFromFile(FileName, Raw);
   if not Result then
     Exit;
 
-  for LineIndex := 0 to GetArrayLength(Lines) - 1 do
-    Content := Content + Lines[LineIndex] + #13#10;
+  if (Length(Raw) >= 2) and
+     (((Ord(Raw[1]) = $FF) and (Ord(Raw[2]) = $FE)) or
+      ((Ord(Raw[1]) = $FE) and (Ord(Raw[2]) = $FF))) then
+  begin
+    Delete(Raw, 1, 2);
+    Content := String(Raw);
+    StringChangeEx(Content, #0, '', True);
+  end
+  else
+  begin
+    if (Length(Raw) >= 3) and (Ord(Raw[1]) = $EF) and (Ord(Raw[2]) = $BB) and (Ord(Raw[3]) = $BF) then
+      Delete(Raw, 1, 3);
+    Content := String(Raw);
+  end;
 end;
 
 // Kurulum parametrelerini dosyalar kopyalanmadan önce doğrular. Boş dönüş:

@@ -79,9 +79,12 @@ internal sealed class AdAuthenticationService
 
         if (string.Equals(authenticationMethod, "ad", StringComparison.Ordinal))
         {
+            // 1.5.0'da açılmış oturumlar eski biçimli parmak izi taşır; ayarlar
+            // değişmediyse güncelleme sonrası da geçerli kalır.
             return options.Enabled &&
                 options.Validate() is null &&
-                string.Equals(fingerprint, options.CreateFingerprint(), StringComparison.Ordinal);
+                (string.Equals(fingerprint, options.CreateFingerprint(), StringComparison.Ordinal) ||
+                 string.Equals(fingerprint, options.CreateLegacyFingerprint(), StringComparison.Ordinal));
         }
 
         // Eski oturumlarda kimlik yöntemi bilgisi yoktur; bunlar yerel oturum

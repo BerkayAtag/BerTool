@@ -61,13 +61,13 @@ Ekran görüntülerindeki makineler ve kullanıcılar sentetik test verisidir.
 
 Kapsamlı hata düzeltme sürümü: sunucu, konsol, tray ajanı ve kurulum baştan sona incelendi.
 
-- **Anahtar yenileme filoyu koparmıyor:** yeni ajan API anahtarı üretildiğinde eski anahtar seçilebilir bir geçiş süresi (varsayılan 7 gün) boyunca geçerli kalır. Hâlâ eski anahtarı kullanan makineler listede "eski anahtar" olarak işaretlenir, ayarlar ekranında sayıları görünür; eski anahtar istendiğinde hemen iptal edilir. Anahtar sızdıysa geçiş süresi kapatılarak eski anahtar anında geçersiz kılınır.
+- **Anahtar yenileme filoyu koparmıyor:** yeni ajan API anahtarı üretildiğinde eski anahtar seçilebilir bir geçiş süresi (varsayılan 7 gün) boyunca geçerli kalır; geçiş süresi içinde tekrar yenilense bile önceki anahtarlar (en fazla 3) kendi bitişlerine kadar geçerlidir. Hâlâ eski anahtarı kullanan makineler listede "eski anahtar" olarak işaretlenir, ayarlar ekranında sayıları görünür; eski anahtarlar istendiğinde hemen iptal edilir. Anahtar sızdıysa geçiş süresi kapatılarak eski anahtarlar anında geçersiz kılınır.
 - **BitLocker denetimi sıkılaştı:** koruması askıya alınmış veya şifresi çözülmekte olan disk artık "Sağlıklı" görünmez; eski önbellek gerçek WMI sonucunu ezmez, okunamayan durum "şifresiz" diye raporlanmaz. Önbellek saatlik yenilenir, `%PROGRAMDATA%\BerTool` klasörü kurulumda kilitlenir.
 - **Hafif ağ ölçümü:** internet hızı 2 saatte bir, en fazla 8 MB ile arka planda ölçülür (eskiden 10 dakikada 16 MB: makine başına günde ~2,3 GB); veri diske yazılmaz, durum yenilemesi beklemez, kimlik doğrulamalı proxy desteklenir.
-- **Dayanıklı sunucu:** `server.json` diske zorlanarak yazılır ve yedeklenir; elektrik kesintisinde bozulursa yedekten açılır. DHCP ile değişen IP adresi yeniden başlatma gerektirmez. AD girişi istek iş parçacığını bloklamaz.
+- **Dayanıklı sunucu:** `server.json` diske zorlanarak yazılır ve son içeriğin bir kopyası yedeklenir; dosya bozulursa yedekten, son değişiklik kaybolmadan açılır. DHCP ile değişen IP adresi yeniden başlatma gerektirmez. AD yavaşken eşzamanlı girişler sınırlanır ve ajan raporlarını bekletmez.
 - **Konsol:** arama kutusu boşlukları ve tuşları yutmaz; sayfa boyutu ve ilk/son sayfa; mobilde makine adından detay; klavye ve ekran okuyucu dostu pencereler; kaydedilmemiş form korunur; AD ayarı kimseyi konsol dışında bırakamaz (yerel yedek giriş, bağlantı testi başarılı olmadan kapatılamaz).
 - **Tray ajanı:** WMI askıda kalsa da kilitlenmez ve eski durumu "güncel" diye raporlamaz; saat geri alınınca raporlama durmaz; durum penceresi risk nedenlerini ve eksik servisi gösterir; ilk kontrol sürerken gri "kontrol ediliyor" simgesi.
-- **İstemci kurulumu:** `/SERVERURL` ile verilen ayar ajan başlamadan yazılır (eskiden ilk oturumda rapor gitmiyordu); hatalı parametrede kurulum çıkış kodu 7 ile durur ve sessiz kurulumda takılmaz; SYSTEM olarak yapılan dağıtımda görünmez ajan kopyası başlatılmaz.
+- **İstemci kurulumu:** `/SERVERURL` ile verilen ayar ajan başlamadan yazılır (eskiden ilk oturumda rapor gitmiyordu); hatalı parametrede kurulum çıkış kodu 7 ile durur (sessiz dağıtımda `/SUPPRESSMSGBOXES` ile pencere açmadan); SCCM/Intune ile SYSTEM olarak yapılan dağıtımda ajan, görünmez bir kopya yerine açık kullanıcı oturumlarında başlatılır.
 
 Tüm liste: [CHANGELOG.md](CHANGELOG.md).
 
@@ -525,13 +525,13 @@ Notlar:
 ```text
 data/
   server.json          Yönetici özeti, ürünler, ayarlar, AD ayarları (parola şifreli), oturum sürümü
-  server.json.bak      server.json'ın bir önceki sağlam sürümü (otomatik)
+  server.json.bak      server.json'ın son kaydedilen içeriğinin kopyası (otomatik)
   machines/<id>.json   Makine özeti + rapor geçmişi
   keys/                ASP.NET Core Data Protection anahtarları
   bootstrap-credentials.txt  (yalnızca ilk kurulumda)
 ```
 
-- `server.json` diske zorlanarak ve atomik olarak yazılır. Dosya okunamazsa (ör. elektrik kesintisi) sunucu `server.json.bak` ile açılır, okunamayan dosyayı `server.json.bozuk-<zaman>` olarak saklar ve loga uyarı yazar.
+- `server.json` diske zorlanarak ve atomik olarak yazılır; ardından aynı içerik `server.json.bak` olarak da yazılır. Dosya okunamazsa (ör. hatalı elle düzenleme, disk hatası) sunucu `server.json.bak` ile açılır — son kaydedilen değişiklik (ör. anahtar iptali, şifre değişikliği) korunur —, okunamayan dosyayı `server.json.bozuk-<zaman>` olarak saklar ve loga uyarı yazar. `server.json`'u elle düzenlemeden önce sunucuyu durdurun.
 - Yedek alırken sunucuyu durdurun veya tüm dosyaları tutarlı bir anlık görüntüden kopyalayın.
 - `keys/` klasörünü de yedekleyin; aksi halde mevcut yönetici oturumları geçersiz olur.
 - Veri klasörünü yalnızca sunucu servis hesabı ve yöneticilerin yazabildiği bir konuma koyun.
@@ -545,7 +545,7 @@ data/
 - **Ürün Tanımları:** ürün adı, servis listesi, eşleşme modu, sıralama, aktiflik; ekleme/düzenleme/silme.
 - **Sunucu Ayarları:** rapor aralığı (30-86400 sn), çevrimdışı eşiği (1-2880 dk, rapor aralığından en az 1 dk uzun), geçmiş limiti (5-500); değişiklikler ajanlara en geç 45 saniyede ulaşır.
 - **Active Directory:** LDAPS/StartTLS bağlantı durumu, düzenlenebilir AD formu, taslak bağlantı testi ve güvenlik uyarıları. Hizmet hesabı parolası yalnızca yazılabilir; istemciye geri gönderilmez. AD oturumunda yerel şifre formu gizlenir.
-- **Ajan API Anahtarı:** yenileme. Varsayılan olarak eski anahtar **7 gün** daha geçerli kalır; bu sürede ajanların `agent-settings.json` dosyası yeni anahtarla güncellenir (ör. istemci kurulumunu `/SERVERURL` ve `/APIKEY` ile yeniden çalıştırarak). Hâlâ eski anahtarla raporlayan makineler listede ve detayda "eski anahtar" olarak işaretlenir, ayarlar ekranında sayıları ve bitiş zamanı görünür; **Eski anahtarı şimdi iptal et** ile süre beklenmeden kapatılır. Anahtar sızdıysa *Eski anahtar 7 gün daha geçerli kalsın* seçeneği kapatılır ve eski anahtar anında geçersiz olur. API: `POST /api/admin/agent-key/rotate` gövdesiz çağrılırsa eski anahtar hemen geçersiz olur (önceki sürümlerle uyumlu); `{"keepPreviousKey": true, "graceHours": 168}` ile geçiş süresi verilir (1-720 saat). `DELETE /api/admin/agent-key/previous` eski anahtarı iptal eder.
+- **Ajan API Anahtarı:** yenileme. Varsayılan olarak eski anahtar **7 gün** daha geçerli kalır; bu sürede ajanların `agent-settings.json` dosyası yeni anahtarla güncellenir (ör. istemci kurulumunu `/SERVERURL` ve `/APIKEY` ile yeniden çalıştırarak). Geçiş süresi içinde anahtar tekrar yenilenirse (ör. yeni anahtar kopyalanmadan kaybolduysa) önceki anahtarlar kendi bitişlerine kadar geçerli kalır; en fazla 3 önceki anahtar tutulur. Hâlâ eski anahtarla raporlayan makineler listede ve detayda "eski anahtar" olarak işaretlenir, ayarlar ekranında sayıları ve bitiş zamanları görünür; **Eski anahtarı şimdi iptal et** ile süre beklenmeden kapatılır. Anahtar sızdıysa *Eski anahtar 7 gün daha geçerli kalsın* seçeneği kapatılır; güncel ve geçiş süresindeki tüm önceki anahtarlar anında geçersiz olur (konsol, etkilenecek makine sayısını onaydan önce gösterir). API: `POST /api/admin/agent-key/rotate` gövdesiz çağrılırsa eski anahtarlar hemen geçersiz olur (önceki sürümlerle uyumlu); `application/json` gövdesi `{"keepPreviousKey": true, "graceHours": 168}` ile geçiş süresi verilir (1-720 saat; JSON olmayan gövde 415 döner). `DELETE /api/admin/agent-key/previous` geçiş süresindeki anahtarları iptal eder.
 - **Sayfalama:** sayfa başına 25/50/100 makine (tarayıcıda hatırlanır), ilk/önceki/sonraki/son sayfa.
 - **Şifre:** en az 12 karakter, en az bir harf ve bir rakam; değişiklikten sonra diğer oturumlar kapatılır. AD oturumunda yerel şifre değiştirilemez.
 - **CSV:** UTF-8 BOM ile indirilir; Excel'de Türkçe karakterler doğru görünür. Formül enjeksiyonu (`=`, `+`, `-`, `@`) etkisizleştirilir.
@@ -613,8 +613,8 @@ BerToolSetup.exe /AGENTSETTINGSFILE="C:\Temp\agent-settings.json"
 
 - `/SERVERURL` ve `/APIKEY` birlikte verilmelidir.
 - Yerel olmayan sunucular için `https://` zorunludur. `http://` yalnızca `127.0.0.1`, `localhost` veya `[::1]` için kabul edilir.
-- `/AGENTSETTINGSFILE` verilirse dosya `%PROGRAMDATA%\BerTool\agent-settings.json` olarak kopyalanır; içerik `serverUrl` ve `apiKey` alanlarını içeren bir JSON nesnesi olmalıdır ve dosyadaki `serverUrl` için de HTTPS kuralı uygulanır. Ajan dosyadaki yorum satırlarını ve sondaki virgülleri kabul eder.
-- Parametreler dosyalar kopyalanmadan önce doğrulanır. Hatalı parametrede kurulum **hiçbir şey değiştirmeden çıkış kodu 7** ile durur; sessiz kurulumda pencere açılmaz, hata `/LOG` dosyasına yazılır.
+- `/AGENTSETTINGSFILE` verilirse dosya `%PROGRAMDATA%\BerTool\agent-settings.json` olarak kopyalanır; içerik `serverUrl` ve `apiKey` alanlarını içeren bir JSON nesnesi olmalıdır ve dosyadaki `serverUrl` için de HTTPS kuralı uygulanır. Dosya UTF-8 veya UTF-16 (Windows PowerShell `Out-File` varsayılanı) olabilir. Ajan dosyadaki yorum satırlarını ve sondaki virgülleri kabul eder.
+- Parametreler dosyalar kopyalanmadan önce doğrulanır. Hatalı parametrede kurulum **hiçbir şey değiştirmeden çıkış kodu 7** ile durur ve hata `/LOG` dosyasına yazılır. Inno Setup bu hatayı `/SILENT` ve `/VERYSILENT` kipinde de bir pencereyle gösterir; gözetimsiz dağıtımda (SCCM, Intune) pencere açılmadan çıkış kodu 7 dönmesi için **`/SUPPRESSMSGBOXES`** de verin.
 - Ayar dosyası ajan başlamadan yazılır; temiz kurulumda ajan ilk açılışta sunucuya raporlar.
 - Parametre verilmezse mevcut `agent-settings.json` korunur; ajan yerel modda çalışır.
 - Yazılan dosyanın izinleri: SYSTEM ve Administrators tam yetki, Users yalnızca okuma. Kalıtım kaldırılır.
@@ -627,13 +627,13 @@ BerToolSetup.exe /SILENT
 BerToolSetup.exe /VERYSILENT
 BerToolSetup.exe /SILENT /NORESTART
 BerToolSetup.exe /VERYSILENT /SUPPRESSMSGBOXES /NORESTART
-BerToolSetup.exe /VERYSILENT /LOG="C:\Temp\BerToolSetup.log"
-BerToolSetup.exe /VERYSILENT /SERVERURL="https://bertool.example.com" /APIKEY="AJAN-API-ANAHTARI"
+BerToolSetup.exe /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /LOG="C:\Temp\BerToolSetup.log"
+BerToolSetup.exe /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /SERVERURL="https://bertool.example.com" /APIKEY="AJAN-API-ANAHTARI"
 ```
 
 > **Önemli:** Inno Setup `/S` ve `/quiet` parametrelerini desteklemez. Sessiz kurulum için `/SILENT` veya `/VERYSILENT` kullanın.
 
-**Dağıtım araçları (SCCM, Intune, BigFix):** Kurulum SYSTEM olarak çalıştığında ajan hemen başlatılmaz (oturum 0'da görünmez bir kopya oluşmasın diye); kullanıcılar oturum açtığında HKLM Run kaydıyla başlar. Güncelleme sırasında tüm oturumlardaki ajan kapatılır; kurulumu yapan kullanıcı dışındaki oturumlarda ajan bir sonraki oturum açılışında başlar.
+**Dağıtım araçları (SCCM, Intune, BigFix):** `/VERYSILENT /SUPPRESSMSGBOXES /NORESTART` kullanın. Kurulum SYSTEM olarak çalıştığında güncelleme öncesinde tüm oturumlardaki ajan kapatılır ve ardından açık (etkin veya bağlantısı kesilmiş) her kullanıcı oturumunda, o oturumun kullanıcısı olarak yeniden başlatılır (`--start-in-user-sessions`); oturum 0'da görünmez bir SYSTEM kopyası başlatılmaz. Oturum açmamış kullanıcılarda ajan oturum açılışında HKLM Run kaydıyla başlar. Etkileşimli kurulumda ajan yalnızca kurulumu yapan kullanıcının oturumunda hemen başlar; diğer oturumlarda bir sonraki oturum açılışında başlar.
 
 ### Kaldırma
 
@@ -651,6 +651,7 @@ BerToolSetup.exe /VERYSILENT /SERVERURL="https://bertool.example.com" /APIKEY="A
 | `--update-bitlocker-cache` | BitLocker cache'ini hemen günceller | Yönetici / SYSTEM | 0/1 |
 | `--register-bitlocker-task` | `BerTool BitLocker Cache` görevini oluşturur/günceller | Yönetici / SYSTEM | 0/1 |
 | `--report-once` | Tek seferlik rapor gönderir ve çıkar | Standart kullanıcı | 0 başarı, 1 hata, 2 yapılandırılmamış |
+| `--start-in-user-sessions` | Tray ajanını açık her kullanıcı oturumunda, o oturumun kullanıcısı olarak başlatır (SYSTEM olarak çalışan kurulum kullanır) | SYSTEM | 0/1 |
 
 - Cache/görev modları tek örnek kontrolünün dışındadır.
 - Görev, UTF-16 XML ile `schtasks /Create /XML` kullanılarak SYSTEM ve en yüksek yetkiyle oluşturulur.

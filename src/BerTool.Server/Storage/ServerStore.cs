@@ -121,14 +121,17 @@ internal sealed class ServerStore
     public const int DefaultApiKeyGraceHours = 168;
     public const int MaxApiKeyGraceHours = 720;
 
+    /// <summary>Aynı anda geçiş süresinde tutulabilecek en fazla önceki anahtar.</summary>
+    public const int MaxPreviousApiKeys = 3;
+
     public bool ValidateAgentApiKey(string? apiKey)
     {
         return MatchAgentApiKey(apiKey) != AgentKeyMatch.None;
     }
 
     /// <summary>
-    /// Anahtarı güncel anahtarla, ardından (geçiş süresi dolmadıysa) önceki
-    /// anahtarla karşılaştırır. Karşılaştırmalar sabit zamanlıdır.
+    /// Anahtarı güncel anahtarla, ardından geçiş süresi dolmamış önceki
+    /// anahtarlarla karşılaştırır. Karşılaştırmalar sabit zamanlıdır.
     /// </summary>
     public AgentKeyMatch MatchAgentApiKey(string? apiKey)
     {
@@ -139,25 +142,30 @@ internal sealed class ServerStore
             return AgentKeyMatch.Current;
         }
 
-        var previousHash = data.PreviousAgentApiKeyHash;
-        if (!string.IsNullOrEmpty(previousHash) &&
-            data.PreviousAgentApiKeyExpiresUtc is { } expiresUtc &&
-            expiresUtc > DateTimeOffset.UtcNow &&
-            PasswordHasher.VerifyAgentApiKey(key, previousHash))
+        var now = DateTimeOffset.UtcNow;
+        var matched = false;
+        foreach (var previous in data.PreviousAgentApiKeys ?? new List<StoredPreviousAgentKey>())
         {
-            return AgentKeyMatch.Previous;
+            // Erken çıkılmaz; eşleşme konumu zamanlamadan anlaşılmasın.
+            if (previous is not null &&
+                previous.ExpiresUtc > now &&
+                PasswordHasher.VerifyAgentApiKey(key, previous.Hash))
+            {
+                matched = true;
+            }
         }
 
-        return AgentKeyMatch.None;
+        return matched ? AgentKeyMatch.Previous : AgentKeyMatch.None;
     }
 
-    private DateTimeOffset? GetActivePreviousKeyExpiry()
+    private List<StoredPreviousAgentKey> GetActivePreviousKeys(DateTimeOffset now)
     {
-        return !string.IsNullOrEmpty(_data.PreviousAgentApiKeyHash) &&
-            _data.PreviousAgentApiKeyExpiresUtc is { } expiresUtc &&
-            expiresUtc > DateTimeOffset.UtcNow
-                ? expiresUtc
-                : null;
+        return (_data.PreviousAgentApiKeys ?? new List<StoredPreviousAgentKey>())
+            .Where(previous => previous is not null &&
+                !string.IsNullOrEmpty(previous.Hash) &&
+                previous.ExpiresUtc > now)
+            .OrderBy(previous => previous.ExpiresUtc)
+            .ToList();
     }
 
     private bool UsesOutdatedApiKey(StoredMachine record)
@@ -292,10 +300,17 @@ internal sealed class ServerStore
         }
     }
 
+    /// <param name="apiKey">
+    /// Verilirse anahtar eşleşmesi kilit altında, kaydedilmeden hemen önce
+    /// yeniden hesaplanır. Ön kontrolden sonra anahtar yenilenip eski anahtar
+    /// iptal edildiyse rapor reddedilir; aksi halde makine bir kez daha
+    /// "güncel anahtar" olarak işaretlenip konsolda yanlış görünüyordu.
+    /// </param>
     public async Task<AgentReportAckDto> SaveReportAsync(
         AgentReportDto report,
         CancellationToken cancellationToken = default,
-        AgentKeyMatch keyMatch = AgentKeyMatch.Current)
+        AgentKeyMatch keyMatch = AgentKeyMatch.Current,
+        string? apiKey = null)
     {
         ArgumentNullException.ThrowIfNull(report);
 
@@ -307,6 +322,15 @@ internal sealed class ServerStore
         await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
+            if (apiKey is not null)
+            {
+                keyMatch = MatchAgentApiKey(apiKey);
+                if (keyMatch == AgentKeyMatch.None)
+                {
+                    throw new StoreUnauthorizedException("Geçersiz veya eksik ajan API anahtarı.");
+                }
+            }
+
             var now = DateTimeOffset.UtcNow;
             var machineId = report.MachineId.ToLowerInvariant();
 
@@ -945,9 +969,12 @@ internal sealed class ServerStore
 
     /// <summary>
     /// Yeni ajan anahtarı üretir. <paramref name="keepPreviousKey"/> true ise
-    /// mevcut anahtar <paramref name="graceHours"/> saat daha kabul edilir; böylece
-    /// anahtar yenilemek tüm filonun raporlamasını aynı anda kesmez. Anahtar
-    /// sızdıysa false verilir ve eski anahtar hemen reddedilir.
+    /// mevcut anahtar <paramref name="graceHours"/> saat daha kabul edilir;
+    /// geçiş süresi dolmamış daha eski anahtarlar da kendi bitişlerine kadar
+    /// geçerli kalır (en fazla <see cref="MaxPreviousApiKeys"/>). Böylece
+    /// anahtar yenilemek, geçiş süresi içinde tekrar yenilense bile filonun
+    /// raporlamasını kesmez. Anahtar sızdıysa false verilir; güncel anahtar ve
+    /// geçiş süresindeki tüm önceki anahtarlar hemen reddedilir.
     /// </summary>
     public async Task<(string ApiKey, DateTimeOffset? PreviousKeyExpiresUtc)> RotateAgentApiKeyAsync(
         bool keepPreviousKey,
@@ -960,21 +987,35 @@ internal sealed class ServerStore
             var now = DateTimeOffset.UtcNow;
             var apiKey = PasswordHasher.GenerateSecret(32);
             var previousHash = _data.AgentApiKeyHash;
-            var previousPreviousHash = _data.PreviousAgentApiKeyHash;
-            var previousPreviousExpiry = _data.PreviousAgentApiKeyExpiresUtc;
+            var previousKeys = _data.PreviousAgentApiKeys;
             var previousRotated = _data.AgentApiKeyRotatedUtc;
 
             DateTimeOffset? previousKeyExpiresUtc = null;
             if (keepPreviousKey)
             {
                 previousKeyExpiresUtc = now.AddHours(Math.Clamp(graceHours, 1, MaxApiKeyGraceHours));
-                _data.PreviousAgentApiKeyHash = previousHash;
-                _data.PreviousAgentApiKeyExpiresUtc = previousKeyExpiresUtc;
+                var kept = GetActivePreviousKeys(now);
+                kept.Add(new StoredPreviousAgentKey { Hash = previousHash, ExpiresUtc = previousKeyExpiresUtc.Value });
+
+                // En uzun süre geçerli kalacaklar tutulur; sınır aşılırsa en erken
+                // bitecek anahtar düşer ve loga yazılır.
+                var ordered = kept.OrderByDescending(item => item.ExpiresUtc).ToList();
+                if (ordered.Count > MaxPreviousApiKeys)
+                {
+                    _logger.LogWarning(
+                        "Geçiş süresindeki önceki anahtar sayısı {Max} sınırını aştı; en erken bitecek {Dropped} anahtar hemen geçersiz oldu.",
+                        MaxPreviousApiKeys,
+                        ordered.Count - MaxPreviousApiKeys);
+                }
+
+                _data.PreviousAgentApiKeys = ordered
+                    .Take(MaxPreviousApiKeys)
+                    .OrderBy(item => item.ExpiresUtc)
+                    .ToList();
             }
             else
             {
-                _data.PreviousAgentApiKeyHash = string.Empty;
-                _data.PreviousAgentApiKeyExpiresUtc = null;
+                _data.PreviousAgentApiKeys = new List<StoredPreviousAgentKey>();
             }
 
             _data.AgentApiKeyHash = PasswordHasher.HashAgentApiKey(apiKey);
@@ -988,8 +1029,7 @@ internal sealed class ServerStore
             catch
             {
                 _data.AgentApiKeyHash = previousHash;
-                _data.PreviousAgentApiKeyHash = previousPreviousHash;
-                _data.PreviousAgentApiKeyExpiresUtc = previousPreviousExpiry;
+                _data.PreviousAgentApiKeys = previousKeys;
                 _data.AgentApiKeyRotatedUtc = previousRotated;
                 throw;
             }
@@ -997,12 +1037,13 @@ internal sealed class ServerStore
             if (keepPreviousKey)
             {
                 _logger.LogWarning(
-                    "Ajan API anahtarı yenilendi. Önceki anahtar {ExpiresUtc:u} tarihine kadar geçerli; ajanların ayarları bu süre içinde güncellenmelidir.",
-                    previousKeyExpiresUtc);
+                    "Ajan API anahtarı yenilendi. Önceki anahtar {ExpiresUtc:u} tarihine kadar geçerli; ajanların ayarları bu süre içinde güncellenmelidir. Geçiş süresindeki önceki anahtar sayısı: {Count}",
+                    previousKeyExpiresUtc,
+                    _data.PreviousAgentApiKeys.Count);
             }
             else
             {
-                _logger.LogWarning("Ajan API anahtarı yenilendi ve önceki anahtar hemen iptal edildi. Tüm ajanların ayarları güncellenmelidir.");
+                _logger.LogWarning("Ajan API anahtarı yenilendi ve önceki anahtarlar hemen iptal edildi. Tüm ajanların ayarları güncellenmelidir.");
             }
 
             return (apiKey, previousKeyExpiresUtc);
@@ -1013,21 +1054,19 @@ internal sealed class ServerStore
         }
     }
 
-    /// <summary>Geçiş süresindeki önceki anahtarı hemen geçersiz kılar.</summary>
+    /// <summary>Geçiş süresindeki tüm önceki anahtarları hemen geçersiz kılar.</summary>
     public async Task<bool> RevokePreviousAgentApiKeyAsync(CancellationToken cancellationToken = default)
     {
         await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            if (string.IsNullOrEmpty(_data.PreviousAgentApiKeyHash) && _data.PreviousAgentApiKeyExpiresUtc is null)
+            var previousKeys = _data.PreviousAgentApiKeys;
+            if (GetActivePreviousKeys(DateTimeOffset.UtcNow).Count == 0)
             {
                 return false;
             }
 
-            var previousHash = _data.PreviousAgentApiKeyHash;
-            var previousExpiry = _data.PreviousAgentApiKeyExpiresUtc;
-            _data.PreviousAgentApiKeyHash = string.Empty;
-            _data.PreviousAgentApiKeyExpiresUtc = null;
+            _data.PreviousAgentApiKeys = new List<StoredPreviousAgentKey>();
             _data.UpdatedAtUtc = DateTimeOffset.UtcNow;
 
             try
@@ -1036,12 +1075,11 @@ internal sealed class ServerStore
             }
             catch
             {
-                _data.PreviousAgentApiKeyHash = previousHash;
-                _data.PreviousAgentApiKeyExpiresUtc = previousExpiry;
+                _data.PreviousAgentApiKeys = previousKeys;
                 throw;
             }
 
-            _logger.LogWarning("Önceki ajan API anahtarı yönetici tarafından iptal edildi.");
+            _logger.LogWarning("Geçiş süresindeki önceki ajan API anahtarları yönetici tarafından iptal edildi.");
             return true;
         }
         finally
@@ -1364,6 +1402,9 @@ internal sealed class ServerStore
         data.Products = (data.Products ?? new List<ProductDefinitionDto>())
             .Where(product => product is not null)
             .ToList();
+        data.PreviousAgentApiKeys = (data.PreviousAgentApiKeys ?? new List<StoredPreviousAgentKey>())
+            .Where(previous => previous is not null && !string.IsNullOrWhiteSpace(previous.Hash))
+            .ToList();
         data.ReportIntervalSeconds = Math.Clamp(data.ReportIntervalSeconds, 30, 86_400);
         data.OfflineThresholdMinutes = Math.Clamp(data.OfflineThresholdMinutes, 1, MaxOfflineThresholdMinutes);
         data.HistoryLimit = Math.Clamp(data.HistoryLimit, 5, 500);
@@ -1469,8 +1510,8 @@ internal sealed class ServerStore
     private string ServerBackupFilePath => _serverFilePath + ".bak";
 
     /// <summary>
-    /// server.json okunamazsa (ör. elektrik kesintisinde yarım kalmış yazma)
-    /// bir önceki sağlam kopya olan server.json.bak kullanılır. Eskiden bozuk
+    /// server.json okunamazsa (ör. elle düzenleme hatası, disk hatası) son
+    /// kaydedilen içeriğin aynı olan server.json.bak kullanılır. Eskiden bozuk
     /// dosya sunucunun hiç açılmamasına, dolayısıyla tüm filonun izlenememesine
     /// yol açıyordu.
     /// </summary>
@@ -1515,15 +1556,15 @@ internal sealed class ServerStore
             var corruptCopy = $"{_serverFilePath}.bozuk-{DateTime.UtcNow:yyyyMMddHHmmss}";
             File.Copy(_serverFilePath, corruptCopy, overwrite: true);
 
-            // Bozuk dosya silinmezse aşağıdaki kayıt onu ".bak" üzerine kopyalar
-            // ve elimizdeki tek sağlam yedeği ezerdi.
+            // Bozuk dosya incelenmek üzere ayrıldı; aşağıdaki kayıt server.json
+            // ve yedeği sağlam içerikle yeniden yazar.
             File.Delete(_serverFilePath);
             _logger.LogWarning("Okunamayan yapılandırma dosyası incelenmek üzere saklandı: {FilePath}", corruptCopy);
         }
 
         await SaveServerDataAsync(cancellationToken).ConfigureAwait(false);
         _logger.LogWarning(
-            "Sunucu yapılandırması yedek kopyadan geri yüklendi: {BackupPath}. Son değişiklik kaybolmuş olabilir.",
+            "Sunucu yapılandırması yedek kopyadan geri yüklendi: {BackupPath}. Okunamayan dosyadaki elle yapılmış değişiklikler uygulanmadı.",
             ServerBackupFilePath);
     }
 
@@ -1566,28 +1607,56 @@ internal sealed class ServerStore
     private async Task SaveServerDataAsync(CancellationToken cancellationToken)
     {
         Directory.CreateDirectory(_dataDirectory);
-        await WriteJsonAtomicAsync(
+        var content = JsonSerializer.SerializeToUtf8Bytes(_data, JsonOptions);
+        await WriteFileAtomicAsync(
             _serverFilePath,
-            _data,
-            JsonOptions,
-            cancellationToken,
+            (stream, token) => stream.WriteAsync(content, token).AsTask(),
             durable: true,
-            backupPath: ServerBackupFilePath).ConfigureAwait(false);
+            cancellationToken).ConfigureAwait(false);
+
+        // Yedek, az önce yazılan içeriğin aynısıdır (bir önceki sürüm değil).
+        // server.json sonradan bozulursa (elle düzenleme, disk hatası) yedekten
+        // açılış son kaydedilen değişikliği (ör. sızan anahtarın iptali, şifre
+        // değişikliği) geri almaz. Yedek yazılamazsa asıl kayıt geçerli kalır.
+        try
+        {
+            await WriteFileAtomicAsync(
+                ServerBackupFilePath,
+                (stream, token) => stream.WriteAsync(content, token).AsTask(),
+                durable: true,
+                cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            _logger.LogWarning(exception, "Sunucu yapılandırmasının yedek kopyası yazılamadı: {BackupPath}", ServerBackupFilePath);
+        }
+    }
+
+    private static Task WriteJsonAtomicAsync<T>(
+        string filePath,
+        T value,
+        JsonSerializerOptions options,
+        CancellationToken cancellationToken)
+    {
+        // Doğrudan UTF-8 akışına yazılır; büyük makine kayıtlarında on
+        // binlerce karakterlik ara metin (ve büyük nesne yığını yükü) oluşmaz.
+        // Makine kayıtları her raporda yeniden yazıldığından diske zorlanmaz.
+        return WriteFileAtomicAsync(
+            filePath,
+            (stream, token) => JsonSerializer.SerializeAsync(stream, value, options, token),
+            durable: false,
+            cancellationToken);
     }
 
     /// <param name="durable">
     /// true ise içerik yeniden adlandırmadan önce diske zorlanır. server.json
-    /// gibi kaybı sunucuyu açılmaz hale getiren dosyalar için kullanılır; makine
-    /// kayıtları her raporda yeniden yazıldığından bu maliyete gerek yoktur.
+    /// gibi kaybı sunucuyu açılmaz hale getiren dosyalar için kullanılır.
     /// </param>
-    /// <param name="backupPath">Verilirse önceki sürüm bu yola taşınır (son sağlam kopya).</param>
-    private static async Task WriteJsonAtomicAsync<T>(
+    private static async Task WriteFileAtomicAsync(
         string filePath,
-        T value,
-        JsonSerializerOptions options,
-        CancellationToken cancellationToken,
-        bool durable = false,
-        string? backupPath = null)
+        Func<Stream, CancellationToken, Task> write,
+        bool durable,
+        CancellationToken cancellationToken)
     {
         var directory = Path.GetDirectoryName(filePath);
         if (!string.IsNullOrWhiteSpace(directory))
@@ -1599,8 +1668,6 @@ internal sealed class ServerStore
 
         try
         {
-            // Doğrudan UTF-8 akışına yazılır; büyük makine kayıtlarında on
-            // binlerce karakterlik ara metin (ve büyük nesne yığını yükü) oluşmaz.
             await using (var stream = new FileStream(
                 tempPath,
                 FileMode.CreateNew,
@@ -1609,18 +1676,12 @@ internal sealed class ServerStore
                 bufferSize: 16 * 1024,
                 useAsync: true))
             {
-                await JsonSerializer.SerializeAsync(stream, value, options, cancellationToken).ConfigureAwait(false);
+                await write(stream, cancellationToken).ConfigureAwait(false);
                 if (durable)
                 {
                     await stream.FlushAsync(cancellationToken).ConfigureAwait(false);
                     stream.Flush(flushToDisk: true);
                 }
-            }
-
-            if (backupPath is not null && File.Exists(filePath))
-            {
-                // Önceki sürüm yedek olarak saklanır; yeni dosya yerine geçer.
-                File.Copy(filePath, backupPath, overwrite: true);
             }
 
             File.Move(tempPath, filePath, overwrite: true);
@@ -1949,7 +2010,7 @@ internal sealed class ServerStore
 
     private AdminSettingsDto CreateAdminSettingsSnapshotUnsafe()
     {
-        var previousKeyExpiry = GetActivePreviousKeyExpiry();
+        var activePreviousKeys = GetActivePreviousKeys(DateTimeOffset.UtcNow);
         var outdatedKeyMachines = 0;
         if (_data.AgentApiKeyRotatedUtc is not null)
         {
@@ -1970,7 +2031,9 @@ internal sealed class ServerStore
             HistoryLimit = _data.HistoryLimit,
             ConfigVersion = _data.ConfigVersion,
             AgentApiKeyConfigured = !string.IsNullOrWhiteSpace(_data.AgentApiKeyHash),
-            PreviousAgentApiKeyExpiresUtc = previousKeyExpiry,
+            PreviousAgentApiKeyExpiresUtc = activePreviousKeys.Count > 0 ? activePreviousKeys[^1].ExpiresUtc : null,
+            PreviousAgentApiKeyEarliestExpiresUtc = activePreviousKeys.Count > 0 ? activePreviousKeys[0].ExpiresUtc : null,
+            PreviousAgentApiKeyCount = activePreviousKeys.Count,
             MachinesUsingPreviousApiKey = outdatedKeyMachines,
             Ad = GetAdStatus(),
             ServerTimeUtc = DateTimeOffset.UtcNow
@@ -1988,6 +2051,13 @@ internal sealed class StoreValidationException : Exception
 internal sealed class StoreNotFoundException : Exception
 {
     public StoreNotFoundException(string message) : base(message)
+    {
+    }
+}
+
+internal sealed class StoreUnauthorizedException : Exception
+{
+    public StoreUnauthorizedException(string message) : base(message)
     {
     }
 }

@@ -109,8 +109,17 @@ public sealed class AdminSettingsDto
     public int ConfigVersion { get; set; }
     public bool AgentApiKeyConfigured { get; set; }
 
-    /// <summary>Önceki ajan anahtarı hâlâ geçerliyse geçerlilik bitişi; değilse null.</summary>
+    /// <summary>
+    /// Geçiş süresindeki önceki anahtarların en geç biteninin bitişi; geçerli
+    /// önceki anahtar yoksa null.
+    /// </summary>
     public DateTimeOffset? PreviousAgentApiKeyExpiresUtc { get; set; }
+
+    /// <summary>Geçiş süresindeki önceki anahtarların en erken biteninin bitişi.</summary>
+    public DateTimeOffset? PreviousAgentApiKeyEarliestExpiresUtc { get; set; }
+
+    /// <summary>Geçiş süresinde kabul edilen önceki anahtar sayısı.</summary>
+    public int PreviousAgentApiKeyCount { get; set; }
 
     /// <summary>Son raporunu önceki anahtarla gönderen makine sayısı.</summary>
     public int MachinesUsingPreviousApiKey { get; set; }

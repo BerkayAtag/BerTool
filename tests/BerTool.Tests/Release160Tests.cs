@@ -216,6 +216,82 @@ public sealed class Release160Tests : IDisposable
     }
 
     [Fact]
+    public async Task AnahtarYenileme_GecisSuresindeTekrarYenilemeEskiAnahtariKoparmaz()
+    {
+        var store = await CreateInitializedStoreAsync();
+        var keyA = await store.RotateAgentApiKeyAsync();
+
+        // A -> B (geçiş süreli), B kopyalanmadan kayboldu; B -> C (geçiş süreli).
+        var (keyB, _) = await store.RotateAgentApiKeyAsync(keepPreviousKey: true, graceHours: 168);
+        var (keyC, _) = await store.RotateAgentApiKeyAsync(keepPreviousKey: true, graceHours: 168);
+
+        // Filo hâlâ A'yı kullanıyor: A da B de geçiş süresinde geçerli kalmalı.
+        Assert.Equal(AgentKeyMatch.Previous, store.MatchAgentApiKey(keyA));
+        Assert.Equal(AgentKeyMatch.Previous, store.MatchAgentApiKey(keyB));
+        Assert.Equal(AgentKeyMatch.Current, store.MatchAgentApiKey(keyC));
+        Assert.Equal(2, (await store.GetAdminSettingsAsync()).PreviousAgentApiKeyCount);
+
+        // Sızıntı: hemen iptalli yenileme güncel ve tüm önceki anahtarları düşürür.
+        var (keyD, _) = await store.RotateAgentApiKeyAsync(keepPreviousKey: false, graceHours: 168);
+        Assert.Equal(AgentKeyMatch.None, store.MatchAgentApiKey(keyA));
+        Assert.Equal(AgentKeyMatch.None, store.MatchAgentApiKey(keyB));
+        Assert.Equal(AgentKeyMatch.None, store.MatchAgentApiKey(keyC));
+        Assert.Equal(AgentKeyMatch.Current, store.MatchAgentApiKey(keyD));
+        Assert.Equal(0, (await store.GetAdminSettingsAsync()).PreviousAgentApiKeyCount);
+    }
+
+    [Fact]
+    public async Task AnahtarYenileme_OncekiAnahtarSayisiSinirlidir()
+    {
+        var store = await CreateInitializedStoreAsync();
+        var keys = new List<string> { await store.RotateAgentApiKeyAsync() };
+        for (var index = 0; index < ServerStore.MaxPreviousApiKeys + 1; index++)
+        {
+            var (key, _) = await store.RotateAgentApiKeyAsync(keepPreviousKey: true, graceHours: 24 + index);
+            keys.Add(key);
+        }
+
+        // En erken bitecek (ilk) anahtar düşer; son MaxPreviousApiKeys önceki anahtar kalır.
+        Assert.Equal(AgentKeyMatch.None, store.MatchAgentApiKey(keys[0]));
+        Assert.Equal(AgentKeyMatch.Previous, store.MatchAgentApiKey(keys[1]));
+        Assert.Equal(AgentKeyMatch.Current, store.MatchAgentApiKey(keys[^1]));
+        Assert.Equal(ServerStore.MaxPreviousApiKeys, (await store.GetAdminSettingsAsync()).PreviousAgentApiKeyCount);
+    }
+
+    [Fact]
+    public async Task Rapor_KayitAnindaIptalEdilmisAnahtariReddeder()
+    {
+        var store = await CreateInitializedStoreAsync();
+        var oldKey = await store.RotateAgentApiKeyAsync();
+
+        // Ön kontrol eski anahtarla "güncel" dedi; kayıt öncesinde anahtar
+        // hemen iptalle yenilendi. Kayıt kilit altında yeniden doğrular.
+        await store.RotateAgentApiKeyAsync(keepPreviousKey: false, graceHours: 168);
+
+        await Assert.ThrowsAsync<StoreUnauthorizedException>(() => store.SaveReportAsync(
+            ReportSanitizer.Normalize(CreateReport()),
+            keyMatch: AgentKeyMatch.Current,
+            apiKey: oldKey));
+        Assert.Null(await store.GetMachineDetailAsync(MachineId));
+    }
+
+    [Fact]
+    public async Task Rapor_KayitAnindaEslesmeYenidenHesaplanir()
+    {
+        var store = await CreateInitializedStoreAsync();
+        var oldKey = await store.RotateAgentApiKeyAsync();
+        await store.RotateAgentApiKeyAsync(keepPreviousKey: true, graceHours: 24);
+
+        // Çağıran "Current" dese bile kilit altında "Previous" bulunur.
+        await store.SaveReportAsync(
+            ReportSanitizer.Normalize(CreateReport()),
+            keyMatch: AgentKeyMatch.Current,
+            apiKey: oldKey);
+
+        Assert.True((await store.GetMachineDetailAsync(MachineId))!.Summary.UsesPreviousApiKey);
+    }
+
+    [Fact]
     public async Task AnahtarYenileme_GecisSuresiYenidenBaslatmadaKorunur()
     {
         var store = await CreateInitializedStoreAsync();
@@ -256,10 +332,51 @@ public sealed class Release160Tests : IDisposable
         Assert.True(File.Exists(serverJson));
         Assert.Contains(Directory.EnumerateFiles(_dataDirectory), path => Path.GetFileName(path).StartsWith("server.json.bozuk-"));
 
+        // Yedek son kaydedilen içeriktir: son değişiklik (geçmiş sınırı) kaybolmaz.
+        Assert.Equal(settings.HistoryLimit + 1, (await reloaded.GetAdminSettingsAsync()).HistoryLimit);
+
         // Geri yüklenen dosya sağlam olmalı; bir sonraki açılış normal yoldan okur.
         var third = CreateStore();
         await third.InitializeAsync();
         Assert.True(third.ValidateAgentApiKey(apiKey));
+    }
+
+    [Fact]
+    public async Task BozukServerJson_SonAnahtarIptaliniGeriAlmaz()
+    {
+        var store = await CreateInitializedStoreAsync();
+        var leakedKey = await store.RotateAgentApiKeyAsync();
+        var (newKey, _) = await store.RotateAgentApiKeyAsync(keepPreviousKey: false, graceHours: 168);
+
+        File.WriteAllText(Path.Combine(_dataDirectory, "server.json"), "{ bozuk");
+
+        var reloaded = CreateStore();
+        await reloaded.InitializeAsync();
+
+        // Eskiden yedek bir önceki sürümdü; kurtarma sızan anahtarı geri getiriyordu.
+        Assert.False(reloaded.ValidateAgentApiKey(leakedKey));
+        Assert.True(reloaded.ValidateAgentApiKey(newKey));
+    }
+
+    [Fact]
+    public void AdOturumu_150ParmakIziGuncellemeSonrasiGecerliKalir()
+    {
+        var options = new AdOptions
+        {
+            Enabled = true,
+            Host = "dc01.ornek.local",
+            BaseDn = "DC=ornek,DC=local",
+            BindDn = "CN=svc,DC=ornek,DC=local",
+            BindPassword = "test-parola-123",
+            AdminGroup = "BerTool Admins"
+        };
+        var service = new BerTool.Server.Security.AdAuthenticationService(
+            options,
+            NullLogger<BerTool.Server.Security.AdAuthenticationService>.Instance);
+
+        Assert.True(service.IsSessionAllowed("ad", options.CreateLegacyFingerprint()));
+        Assert.True(service.IsSessionAllowed("ad", options.CreateFingerprint()));
+        Assert.False(service.IsSessionAllowed("ad", "0000000000000000"));
     }
 
     [Fact]

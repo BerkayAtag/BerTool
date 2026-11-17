@@ -487,8 +487,22 @@ def uc10(r, env, agent):
     r.check('yeni anahtar kabul ediliyor', st == 200, st)
     settings = env.settings()
     r.check('ayarlarda eski anahtarın bitiş zamanı görünüyor', bool(settings.get('previousAgentApiKeyExpiresUtc')), settings.get('previousAgentApiKeyExpiresUtc'))
+
+    # Geçiş süresinde ikinci yenileme (ör. yeni anahtar kopyalanmadan kayboldu):
+    # filonun hâlâ kullandığı ilk anahtar düşmemeli.
+    st, body = admin.call('POST', '/api/admin/agent-key/rotate', {'keepPreviousKey': True, 'graceHours': 24})
+    second_key = body.get('apiKey') if st == 200 else None
+    r.check('geçiş süresinde ikinci yenileme', st == 200 and second_key, (st, body))
+    st_first, _ = env.agent_config(old_key)
+    st_lost, _ = env.agent_config(new_key)
+    r.check('ikinci yenilemede ilk anahtar da kayıp anahtar da geçerli kalıyor', st_first == 200 and st_lost == 200, (st_first, st_lost))
+    r.check('ayarlarda iki önceki anahtar görünüyor', env.settings().get('previousAgentApiKeyCount') == 2, env.settings().get('previousAgentApiKeyCount'))
+    st, _ = admin.call('POST', '/api/admin/agent-key/rotate', b'{"keepPreviousKey":true}', headers={'Content-Type': 'application/x-www-form-urlencoded'})
+    r.check('JSON olmayan gövdeyle yenileme 415 döner (500 değil)', st == 415, st)
+    new_key = second_key
+
     st, _ = admin.call('DELETE', '/api/admin/agent-key/previous')
-    r.check('yönetici eski anahtarı iptal edebiliyor', st == 200, st)
+    r.check('yönetici eski anahtarları iptal edebiliyor', st == 200, st)
     st, _ = env.agent_config(old_key)
     r.check('iptalden sonra eski anahtar reddediliyor (401)', st == 401, st)
 

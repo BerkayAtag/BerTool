@@ -742,6 +742,10 @@ function changeStatusFilter(status) {
 }
 
 function resetFilters() {
+    // Bekleyen arama zamanlayıcısı iptal edilir; aksi halde temizlemeden hemen
+    // sonra eski arama metni boş kutunun altında yeniden uygulanıyordu.
+    window.clearTimeout(state.searchTimer);
+    state.searchTimer = null;
     state.filters.status = 'all';
     state.filters.search = '';
     state.filters.product = '';
@@ -1268,10 +1272,17 @@ function updateAgentKeyState() {
     const panel = byId('previous-key-panel');
     const text = byId('previous-key-text');
     if (previousExpiry) {
+        const keyCount = Number(state.settings?.previousAgentApiKeyCount || 1);
+        const earliestExpiry = state.settings?.previousAgentApiKeyEarliestExpiresUtc || previousExpiry;
         const machinesText = outdatedMachines > 0
-            ? `${formatCount(outdatedMachines)} makine hâlâ eski anahtarla raporluyor; makine listesinde "eski anahtar" olarak işaretlidir.`
-            : 'Eski anahtarla raporlayan makine kalmadı; eski anahtarı iptal edebilirsiniz.';
-        text.textContent = `Önceki anahtar ${formatDate(previousExpiry)} tarihine kadar (${timeAgo(previousExpiry)}) geçerli. ${machinesText}`;
+            ? `${formatCount(outdatedMachines)} makine hâlâ eski bir anahtarla raporluyor; makine listesinde "eski anahtar" olarak işaretlidir.`
+            : 'Eski anahtarla raporlayan makine kalmadı; eski anahtarları iptal edebilirsiniz.';
+        text.textContent = keyCount > 1
+            ? `Geçiş süresinde ${formatCount(keyCount)} önceki anahtar var; ilki ${formatDate(earliestExpiry)} (${timeAgo(earliestExpiry)}), sonuncusu ${formatDate(previousExpiry)} tarihine kadar geçerli. ${machinesText}`
+            : `Önceki anahtar ${formatDate(previousExpiry)} tarihine kadar (${timeAgo(previousExpiry)}) geçerli. ${machinesText}`;
+        byId('revoke-previous-key-button').textContent = keyCount > 1
+            ? 'Eski anahtarları şimdi iptal et'
+            : 'Eski anahtarı şimdi iptal et';
         panel.classList.remove('hidden');
     } else if (outdatedMachines > 0) {
         text.textContent =
@@ -1289,7 +1300,7 @@ function updateAgentKeyState() {
 
 async function revokePreviousAgentKey() {
     const confirmed = window.confirm(
-        'Önceki ajan API anahtarı şimdi iptal edilsin mi?\n\n' +
+        'Geçiş süresindeki önceki ajan API anahtarları şimdi iptal edilsin mi?\n\n' +
         'Hâlâ eski anahtarı kullanan ajanlar yeni anahtarla güncellenene kadar rapor gönderemez.');
     if (!confirmed) {
         return;
@@ -1300,18 +1311,30 @@ async function revokePreviousAgentKey() {
 
     try {
         await api('/api/admin/agent-key/previous', { method: 'DELETE' });
-        toast('Önceki ajan API anahtarı iptal edildi.', 'success');
-
-        // Yalnızca anahtar durumu yenilenir; loadSettings aynı sayfadaki
-        // kaydedilmemiş AD ve raporlama formlarını sıfırlardı.
-        state.settings = await api('/api/admin/settings');
-        updateAgentKeyState();
+        toast('Önceki ajan API anahtarları iptal edildi.', 'success');
     } catch (error) {
-        if (!error.handled) {
+        if (error.handled) {
+            setButtonBusy(button, false);
+            return;
+        }
+
+        // 404: iptal edilecek anahtar yok (ör. başka sekmede iptal edildi);
+        // durum aşağıda yine yenilenir.
+        if (error.status !== 404) {
             toast(`Önceki anahtar iptal edilemedi: ${describeError(error)}`, 'error');
         }
-    } finally {
-        setButtonBusy(button, false);
+    }
+
+    setButtonBusy(button, false);
+
+    // Yalnızca anahtar durumu yenilenir; loadSettings aynı sayfadaki
+    // kaydedilmemiş AD ve raporlama formlarını sıfırlardı. Yenileme başarısız
+    // olsa da iptal sonucu değişmez, ayrıca hata bildirilmez.
+    try {
+        state.settings = await api('/api/admin/settings');
+        updateAgentKeyState();
+    } catch {
+        // Durum bir sonraki yüklemede güncellenir.
     }
 }
 
@@ -1412,6 +1435,12 @@ function collectAdSettings() {
     };
 }
 
+// Sunucudaki AdOptions.EffectivePort ile aynı: boş/0 port şifrelemeye göre 636/389.
+function effectiveAdPort(port, useSsl) {
+    const numeric = Number(port || 0);
+    return numeric > 0 ? numeric : useSsl ? 636 : 389;
+}
+
 // Oturumu AD yapılandırmasına bağlayan alanlar (sunucudaki parmak izi).
 // Bunlardan biri değişirse AD ile açılmış oturumlar kapanır.
 function adConnectionChanged(draft, current) {
@@ -1422,7 +1451,7 @@ function adConnectionChanged(draft, current) {
 
     return draft.enabled !== Boolean(status.enabled) ||
         !same(draft.host, status.host) ||
-        Number(draft.port || 0) !== Number(status.configuredPort || 0) ||
+        effectiveAdPort(draft.port, draft.useSsl) !== effectiveAdPort(status.configuredPort, status.useSsl) ||
         draftEncryption !== currentEncryption ||
         !same(draft.baseDn, status.baseDn) ||
         !same(draft.bindDn, status.bindDn) ||
@@ -1614,13 +1643,37 @@ async function changePassword(event) {
 
 async function rotateAgentKey() {
     const keepPrevious = byId('rotate-keep-previous').checked;
-    const confirmed = window.confirm(
-        'Yeni bir ajan API anahtarı üretilsin mi?\n\n' +
-        (keepPrevious
-            ? 'Mevcut anahtar 7 gün daha geçerli kalır. Bu sürede tüm ajanların ayarını yeni anahtarla güncelleyin; ' +
-              'süre dolunca eski anahtarla gelen raporlar reddedilir.'
-            : 'Mevcut anahtar HEMEN geçersiz olur ve tüm ajanların ayarları güncellenene kadar raporlama durur.'));
-    if (!confirmed) {
+
+    // Onaydan önce geçiş süresindeki anahtar durumu tazelenir; onay metni
+    // hangi anahtarların geçerli kalacağını veya hemen düşeceğini doğru söylesin.
+    try {
+        state.settings = await api('/api/admin/settings');
+        updateAgentKeyState();
+    } catch (error) {
+        if (error.handled) {
+            return;
+        }
+    }
+
+    const inGrace = Number(state.settings?.previousAgentApiKeyCount || 0);
+    const outdated = Number(state.settings?.machinesUsingPreviousApiKey || 0);
+    let message = 'Yeni bir ajan API anahtarı üretilsin mi?\n\n';
+    if (keepPrevious) {
+        message += 'Mevcut anahtar 7 gün daha geçerli kalır. Bu sürede tüm ajanların ayarını yeni anahtarla güncelleyin; ' +
+            'süre dolunca eski anahtarla gelen raporlar reddedilir.';
+        if (inGrace > 0) {
+            message += `\n\nGeçiş süresindeki ${formatCount(inGrace)} önceki anahtar da kendi bitiş tarihine kadar geçerli kalır ` +
+                '(en fazla 3 önceki anahtar tutulur; sınır aşılırsa en erken biteni hemen geçersiz olur).';
+        }
+    } else {
+        message += 'Mevcut anahtar HEMEN geçersiz olur ve tüm ajanların ayarları güncellenene kadar raporlama durur.';
+        if (inGrace > 0) {
+            message += `\n\nDİKKAT: Geçiş süresindeki ${formatCount(inGrace)} önceki anahtar da HEMEN geçersiz olur` +
+                (outdated > 0 ? `; ${formatCount(outdated)} makine henüz yeni anahtara geçmemiş görünüyor ve rapor gönderemeyecek.` : '.');
+        }
+    }
+
+    if (!window.confirm(message)) {
         return;
     }
 
@@ -1835,8 +1888,8 @@ function bindEvents() {
 
     byId('search-input').addEventListener('input', event => {
         window.clearTimeout(state.searchTimer);
-        const value = event.target.value;
         state.searchTimer = window.setTimeout(() => {
+            const value = byId('search-input').value;
             // Kırpma yalnızca sorguda yapılır (dashboardQuery); yalnızca baştaki
             // veya sondaki boşluk değiştiyse aynı sorgu tekrar gönderilmez.
             const changed = value.trim() !== state.filters.search.trim();

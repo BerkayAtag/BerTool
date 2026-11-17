@@ -139,6 +139,13 @@ internal sealed class AgentReportingService : IDisposable
         bool waitForLock,
         CancellationToken cancellationToken)
     {
+        if (status.IsFallback)
+        {
+            // Savunma: yer tutucu durum hiçbir yoldan sunucuya gönderilmez.
+            Logger.Warn("Yer tutucu durum sunucuya raporlanmadı.");
+            return false;
+        }
+
         var lockTaken = waitForLock
             ? await WaitForLockAsync(cancellationToken).ConfigureAwait(false)
             : _reportLock.Wait(0);

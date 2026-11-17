@@ -30,11 +30,15 @@ Hazir ayar dosyasiyla:
 Dosyadaki serverUrl icin de ayni HTTPS kurali gecerlidir. Parametreler
 dosyalar kopyalanmadan once dogrulanir: gecersiz adres, eksik /APIKEY veya
 bozuk ayar dosyasinda kurulum hicbir seyi degistirmeden cikis kodu 7 ile
-durur; mevcut kurulum ve ayar korunur. Sessiz kurulumda pencere acilmaz,
-hata /LOG="C:\Temp\BerToolSetup.log" ile verilen dosyaya yazilir.
+durur; mevcut kurulum ve ayar korunur. Hata /LOG="C:\Temp\BerToolSetup.log"
+ile verilen dosyaya yazilir. Inno Setup hatayi /VERYSILENT kipinde de bir
+pencereyle gosterir; gozetimsiz dagitimda pencere acilmadan cikis kodu 7
+donmesi icin /SUPPRESSMSGBOXES de verin.
 
-SCCM/Intune/BigFix gibi araclar kurulumu SYSTEM olarak calistirir; bu
-durumda ajan hemen baslatilmaz, kullanicilar oturum actiginda baslar.
+SCCM/Intune/BigFix gibi araclar kurulumu SYSTEM olarak calistirir
+(/VERYSILENT /SUPPRESSMSGBOXES /NORESTART kullanin). Bu durumda guncelleme
+oncesinde kapatilan ajan, acik her kullanici oturumunda o kullanici olarak
+yeniden baslatilir; oturum acmamis kullanicilarda oturum acilisinda baslar.
 
 Sessiz kurulum icin /SILENT veya /VERYSILENT kullanin; /S degil.
 
@@ -87,7 +91,8 @@ bootstrap-credentials.txt dosyasini silin. Ajanlara API anahtarini
 
 Ajan API anahtarini yenilemek (Ayarlar > Ajan API Anahtari) raporlamayi
 kesmez: eski anahtar varsayilan olarak 7 gun daha gecerlidir. Bu surede
-istemci kurulumunu yeni /APIKEY ile yeniden calistirin; eski anahtari
+istemci kurulumunu /SERVERURL ve yeni /APIKEY ile (veya yeni anahtari
+iceren /AGENTSETTINGSFILE ile) yeniden calistirin; eski anahtari
 kullanan makineler konsolda "eski anahtar" olarak gorunur. Anahtar
 sizdiysa "7 gun daha gecerli kalsin" secenegini kapatin.
 

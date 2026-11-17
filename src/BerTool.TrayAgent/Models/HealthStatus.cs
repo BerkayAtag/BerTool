@@ -14,6 +14,9 @@ internal sealed class HealthStatus
     public bool IsHealthy { get; init; }
     public DateTime CheckedAt { get; init; } = DateTime.Now;
 
+    /// <summary>Denetim anı, Environment.TickCount64 (ms); yaş hesabı için.</summary>
+    public long CheckedAtTickMs { get; init; } = Environment.TickCount64;
+
     /// <summary>
     /// Gerçek ölçüm değil, hata/ilk yükleme yer tutucusu. Ekranda gösterilir
     /// ama sunucuya raporlanmaz: boş servis listesi sunucuda tüm ürünleri

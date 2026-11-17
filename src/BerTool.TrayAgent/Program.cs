@@ -1,6 +1,7 @@
 using BerTool.TrayAgent.Services;
 using BerTool.TrayAgent.Logging;
 using BerTool.TrayAgent.Reporting;
+using BerTool.TrayAgent.Utilities;
 using System.Diagnostics;
 using System.Security;
 using System.Text;
@@ -33,6 +34,13 @@ internal static class Program
         if (args.Any(argument => string.Equals(argument, "--report-once", StringComparison.OrdinalIgnoreCase)))
         {
             return ReportOnce();
+        }
+
+        if (args.Any(argument => string.Equals(argument, "--start-in-user-sessions", StringComparison.OrdinalIgnoreCase)))
+        {
+            // Kurulum SYSTEM olarak çalıştığında: ajanı açık kullanıcı
+            // oturumlarında, o kullanıcı olarak başlatır.
+            return StartInUserSessions();
         }
 
         // Aynı kullanıcı oturumunda birden fazla tray ajanı çalışmasını engeller.
@@ -71,6 +79,20 @@ internal static class Program
         finally
         {
             singleInstanceMutex.ReleaseMutex();
+        }
+    }
+
+    private static int StartInUserSessions()
+    {
+        try
+        {
+            var executablePath = Environment.ProcessPath ?? Application.ExecutablePath;
+            return UserSessionLauncher.StartInActiveSessions(executablePath);
+        }
+        catch (Exception exception)
+        {
+            Logger.Error("Tray ajanı kullanıcı oturumlarında başlatılamadı.", exception);
+            return 1;
         }
     }
 
@@ -117,6 +139,14 @@ internal static class Program
                 configurationProvider);
 
             var status = evaluator.Evaluate();
+            if (status.IsFallback)
+            {
+                // Yer tutucu (boş servis listesi) sunucuya gönderilmez; sunucuda
+                // tüm ürünler "Bulunamadı" görünüyordu.
+                Logger.Error("Tek seferlik rapor gönderilmedi: durum hesaplanamadı (yer tutucu sunucuya raporlanmaz).");
+                return 1;
+            }
+
             using var reportingService = new AgentReportingService(
                 apiClient,
                 settingsProvider.Settings,

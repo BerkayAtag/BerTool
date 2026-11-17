@@ -4,6 +4,7 @@ using BerTool.Server.Storage;
 using BerTool.Shared.Contracts;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
+using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.RateLimiting;
 using System.Globalization;
 using System.Security.Claims;
@@ -18,6 +19,10 @@ internal static class AdminEndpoints
     private const string AuthenticationMethodClaim = "bertool:auth";
     private const string DisplayNameClaim = "bertool:display";
     private const string AdFingerprintClaim = "bertool:adfp";
+    private const int AdLoginConcurrency = 4;
+
+    // AD doğrulamalarını sınırlar; bkz. LoginAsync.
+    private static readonly SemaphoreSlim AdLoginGate = new(AdLoginConcurrency, AdLoginConcurrency);
 
     public static void MapAdminEndpoints(this WebApplication app)
     {
@@ -289,11 +294,25 @@ internal static class AdminEndpoints
             CancellationToken cancellationToken) =>
         {
             // Gövde isteğe bağlıdır. Gövdesiz istek (eski istemciler, betikler)
-            // önceki davranışı korur: eski anahtar hemen geçersiz olur.
+            // önceki davranışı korur: eski anahtar hemen geçersiz olur. Gövde
+            // varlığı Content-Length'e ek olarak sunucunun gövde algılamasıyla
+            // belirlenir (HTTP/2'de Content-Length olmadan gönderilen gövde
+            // yok sayılıp anahtar yanlışlıkla hemen iptal edilmesin).
             var request = new RotateAgentKeyRequest();
-            if (context.Request.ContentLength is > 0 ||
-                context.Request.Headers.ContainsKey("Transfer-Encoding"))
+            var canHaveBody = context.Features.Get<IHttpRequestBodyDetectionFeature>()?.CanHaveBody == true;
+            var hasBody = context.Request.ContentLength is > 0 ||
+                (context.Request.ContentLength is null && canHaveBody);
+            if (hasBody)
             {
+                // JSON olmayan gövde (ör. Invoke-RestMethod'un varsayılan form
+                // içerik türü) eskiden 500 hatası veriyordu.
+                if (!context.Request.HasJsonContentType())
+                {
+                    return Results.Json(
+                        new ApiErrorDto { Message = "Anahtar yenileme isteği application/json içerik türünde olmalıdır." },
+                        statusCode: StatusCodes.Status415UnsupportedMediaType);
+                }
+
                 try
                 {
                     request = await context.Request.ReadFromJsonAsync<RotateAgentKeyRequest>(cancellationToken)
@@ -407,10 +426,38 @@ internal static class AdminEndpoints
         }
 
         // LDAP istemcisi eşzamanlıdır ve AD zaman aşımı 60 sn'ye kadar
-        // ayarlanabilir. İstek iş parçacığını bloklamamak için ayrı iş
-        // parçacığında çalıştırılır; AD yavaşken eşzamanlı girişler sunucunun
-        // iş parçacığı havuzunu tüketip ajan raporlarını da bekletiyordu.
-        var adResult = await Task.Run(() => adService.Authenticate(request.Username, request.Password));
+        // ayarlanabilir. AD yavaşken eşzamanlı girişler iş parçacığı havuzunu
+        // tüketip ajan raporlarını da bekletiyordu. Aynı anda en fazla
+        // AdLoginConcurrency AD doğrulaması, havuz dışındaki ayrı iş
+        // parçacıklarında yapılır; sınır doluysa AD "kullanılamıyor" sayılır
+        // ve yerel yedek giriş (açıksa) yine denenir.
+        AdAuthenticationResult adResult;
+        if (!adService.IsEnabled)
+        {
+            adResult = new AdAuthenticationResult(AdAuthenticationStatus.Disabled);
+        }
+        else if (await AdLoginGate.WaitAsync(TimeSpan.FromSeconds(5), context.RequestAborted))
+        {
+            try
+            {
+                adResult = await Task.Factory.StartNew(
+                    () => adService.Authenticate(request.Username, request.Password),
+                    CancellationToken.None,
+                    TaskCreationOptions.LongRunning,
+                    TaskScheduler.Default);
+            }
+            finally
+            {
+                AdLoginGate.Release();
+            }
+        }
+        else
+        {
+            adResult = new AdAuthenticationResult(
+                AdAuthenticationStatus.Unavailable,
+                Error: "Eşzamanlı Active Directory doğrulama sınırı dolu.");
+        }
+
         if (adResult.Status == AdAuthenticationStatus.Success)
         {
             throttle.Reset(remoteIp, request.Username);
@@ -652,8 +699,10 @@ internal static class AdminEndpoints
                 Csv(string.Join(", ", machine.IpAddresses)),
                 Csv(productSummary),
                 Csv(string.Join(" | ", machine.RiskReasons)),
-                Csv(machine.LastSeenUtc.ToLocalTime().ToString("dd.MM.yyyy HH:mm:ss", CultureInfo.InvariantCulture)),
-                Csv(machine.CollectedAtUtc.ToLocalTime().ToString("dd.MM.yyyy HH:mm:ss", CultureInfo.InvariantCulture)),
+                // Tüm satırlar başlıkta yazan tek ofsetle yazılır; ToLocalTime()
+                // yaz/kış saati farklı tarihlerde başlıktan farklı ofset veriyordu.
+                Csv(machine.LastSeenUtc.ToOffset(offset).ToString("dd.MM.yyyy HH:mm:ss", CultureInfo.InvariantCulture)),
+                Csv(machine.CollectedAtUtc.ToOffset(offset).ToString("dd.MM.yyyy HH:mm:ss", CultureInfo.InvariantCulture)),
                 Csv(machine.AgentVersion),
                 Csv(machine.IsConfigCurrent ? "Evet" : "Hayır"),
                 Csv(machine.UsesPreviousApiKey ? "Eski" : "Güncel")));

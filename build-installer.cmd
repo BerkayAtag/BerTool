@@ -178,8 +178,8 @@ echo   BerToolSetup.exe /SILENT
 echo   BerToolSetup.exe /VERYSILENT
 echo   BerToolSetup.exe /SILENT /NORESTART
 echo   BerToolSetup.exe /VERYSILENT /SUPPRESSMSGBOXES /NORESTART
-echo   BerToolSetup.exe /VERYSILENT /LOG="C:\Temp\BerToolSetup.log"
-echo   BerToolSetup.exe /VERYSILENT /SERVERURL="https://bertool.example.com" /APIKEY="AJAN-API-ANAHTARI"
+echo   BerToolSetup.exe /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /LOG="C:\Temp\BerToolSetup.log"
+echo   BerToolSetup.exe /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /SERVERURL="https://bertool.example.com" /APIKEY="AJAN-API-ANAHTARI"
 exit /b 0
 
 :fail

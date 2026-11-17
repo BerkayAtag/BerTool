@@ -40,7 +40,13 @@ internal sealed class TrayAppContext : ApplicationContext
 
     private bool _isRefreshing;
     private bool _isExiting;
+    private bool _staleStatusWarned;
     private HealthStatus? _latestStatus;
+
+    // Süren durum denetimi. WMI askıda kaldığında zaman aşımı sonrası sonraki
+    // yenilemeler aynı görevi bekler; her yenilemede yeni bir iş parçacığı
+    // WMI'de takılıp sızmaz.
+    private Task<HealthStatus>? _evaluation;
 
     public TrayAppContext(bool showOnStart = false)
     {
@@ -142,15 +148,21 @@ internal sealed class TrayAppContext : ApplicationContext
         }
     }
 
-    private bool IsReportable(HealthStatus? status)
+    private static bool IsReportable(HealthStatus? status)
     {
+        // Yaş, sistem saatinden bağımsız monoton sayaçla ölçülür (yaz saati
+        // geçişi veya saat düzeltmesi durumu yanlışlıkla eski/taze göstermez).
         return status is not null &&
             !status.IsFallback &&
-            DateTime.Now - status.CheckedAt < MaxReportableStatusAge;
+            Environment.TickCount64 - status.CheckedAtTickMs < (long)MaxReportableStatusAge.TotalMilliseconds;
     }
 
+    /// <param name="reportAfterRefresh">
+    /// false ise yalnızca durum yenilenir; çağıran (elle raporlama) raporu
+    /// kendisi gönderir. Aksi halde aynı rapor art arda iki kez gidebiliyordu.
+    /// </param>
     /// <returns>Yenileme bu çağrıda yapıldıysa true; zaten sürüyorsa false.</returns>
-    private async Task<bool> RefreshStatusAsync()
+    private async Task<bool> RefreshStatusAsync(bool reportAfterRefresh = true)
     {
         // Aynı anda birden fazla ölçüm çalıştırıp UI'yi yormamak için tekil refresh kilidi.
         lock (_refreshLock)
@@ -181,7 +193,12 @@ internal sealed class TrayAppContext : ApplicationContext
                 }
             }
 
-            var status = await Task.Run(_statusEvaluator.Evaluate)
+            if (_evaluation is null || _evaluation.IsCompleted)
+            {
+                _evaluation = Task.Run(_statusEvaluator.Evaluate);
+            }
+
+            var status = await _evaluation
                 .WaitAsync(EvaluateTimeout)
                 .ConfigureAwait(true);
             if (_isExiting)
@@ -193,6 +210,7 @@ internal sealed class TrayAppContext : ApplicationContext
             if (!status.IsFallback)
             {
                 _latestStatus = status;
+                _staleStatusWarned = false;
                 statusToReport = status;
             }
         }
@@ -220,7 +238,7 @@ internal sealed class TrayAppContext : ApplicationContext
             }
         }
 
-        if (statusToReport is not null && !_isExiting)
+        if (reportAfterRefresh && statusToReport is not null && !_isExiting)
         {
             try
             {
@@ -286,10 +304,21 @@ internal sealed class TrayAppContext : ApplicationContext
         var status = _latestStatus;
         if (status is not null && !IsReportable(status))
         {
-            Logger.Warn(
-                $"Son durum {status.CheckedAt:HH:mm:ss} tarihli ve çok eski; durum yenilemesi tamamlanana kadar rapor gönderilmiyor.");
+            // Bir kez uyarılır ve zamanlayıcı yeniden kurulmaz; her yenileme
+            // denemesi (zaman aşımı dahil) zamanlayıcıyı zaten yeniden kurar.
+            // Eskiden zamanlayıcı 1 sn'de bir yeniden kurulup aynı uyarıyı günde
+            // ~86.000 kez yazıyor, kök nedeni gösteren loglar dönüp kayboluyordu.
+            if (!_staleStatusWarned)
+            {
+                _staleStatusWarned = true;
+                Logger.Warn(
+                    $"Son durum {status.CheckedAt:HH:mm:ss} tarihli ve çok eski; durum yenilemesi tamamlanana kadar rapor gönderilmiyor.");
+            }
+
+            return;
         }
-        else if (status is not null)
+
+        if (status is not null)
         {
             try
             {
@@ -337,7 +366,7 @@ internal sealed class TrayAppContext : ApplicationContext
         // Elle raporlamada önce durum yenilenir; eskiden 45 sn'ye kadar eski
         // anlık görüntü gönderiliyordu. Yenileme zaten sürüyorsa onun sonucu
         // beklenmez, mevcut güncel durum kullanılır.
-        await RefreshStatusAsync().ConfigureAwait(true);
+        await RefreshStatusAsync(reportAfterRefresh: false).ConfigureAwait(true);
         if (_isExiting)
         {
             return;

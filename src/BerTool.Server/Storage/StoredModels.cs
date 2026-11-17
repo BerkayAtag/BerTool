@@ -13,10 +13,13 @@ internal sealed class StoredServerData
 
     /// <summary>
     /// Anahtar yenilendikten sonra geçiş süresi boyunca kabul edilen önceki
-    /// anahtarın özeti. Süre dolunca veya yönetici iptal edince boşaltılır.
+    /// anahtarlar; her birinin kendi bitişi vardır. Liste değiştirilmez, her
+    /// değişiklikte yenisiyle değiştirilir (kilitsiz okuyucular güvenle gezer).
+    /// Birden çok kayıt tutulur: geçiş süresi içinde anahtar ikinci kez
+    /// yenilendiğinde (ör. yeni anahtar kopyalanmadan kaybolduğunda) hâlâ
+    /// eski anahtarı kullanan filo kopmaz.
     /// </summary>
-    public string PreviousAgentApiKeyHash { get; set; } = string.Empty;
-    public DateTimeOffset? PreviousAgentApiKeyExpiresUtc { get; set; }
+    public List<StoredPreviousAgentKey> PreviousAgentApiKeys { get; set; } = new();
 
     /// <summary>Anahtarın son yenilendiği an. Bundan önce görülen makineler eski anahtarı kullanıyordur.</summary>
     public DateTimeOffset? AgentApiKeyRotatedUtc { get; set; }
@@ -36,6 +39,12 @@ internal sealed class StoredServerData
     public StoredAdSettings? Ad { get; set; }
 
     public DateTimeOffset UpdatedAtUtc { get; set; } = DateTimeOffset.UtcNow;
+}
+
+internal sealed class StoredPreviousAgentKey
+{
+    public string Hash { get; set; } = string.Empty;
+    public DateTimeOffset ExpiresUtc { get; set; }
 }
 
 internal sealed class StoredAdSettings
